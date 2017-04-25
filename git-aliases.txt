@@ -1,0 +1,13 @@
+alias.lg=log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Cr'
+alias.st=status --branch --short
+alias.purge=clean -fdXq
+alias.diffstaged=diff --cached
+alias.purgeall=clean -fdxq
+alias.root=rev-parse --show-toplevel
+alias.show-commit=diff-tree --name-status -r
+alias.out=!git fetch && git log origin/$1..
+alias.curb=!git symbolic-ref HEAD | sed 's!refs\/heads\/!!'
+alias.new-branch=!git checkout -b $1 && git push -u origin $1
+alias.alias=!git config -l | grep ^alias
+alias.estash=!sh -c 'git stash $1 stash@{$2}' -
+alias.stash-show=!sh -c 'git stash show -p stash@{$1}' -
