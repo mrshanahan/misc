@@ -1,34 +1,202 @@
-Function List-Out ($dir)
+###############################
+# Filesystem utilities
+###############################
+
+# Updates the relevant timestamp for the given file.
+function Update-FileTimestampAttribute
 {
-    Write-Output "$dir"
-	Function List-Out_R ($dir, $chars)
-	{
-		If ((Get-Item $dir) -is [System.IO.DirectoryInfo])
-		{        
-			$children = Get-ChildItem $dir
-			foreach ($c in $children)
-			{
-				
-				Write-Output "$chars$c"
-				List-Out_R "$dir\\$c" "-$chars"
-			}
-		}
-	}
-    List-Out_R $dir "-|"
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$true, ValueFromPipeline=$true)]
+        [string[]] $Paths,
+
+        [ValidateSet('Write','Access','WriteAccess')]
+        [string] $Property = 'WriteAccess',
+
+        [switch] $PassThru
+    )
+
+    process
+    {
+        foreach ($Path in $Paths)
+        {
+            if (!(Test-Path $Path))
+            {
+                $Parent = Split-Path -Parent -Path $Path
+                if (!([String]::IsNullOrEmpty($Parent)) -and !(Test-Path $Parent))
+                {
+                    throw "Can't find parent of file $Path"
+                }
+
+                $CreatedFile = New-Item -ItemType File -Path $Path
+                if ($PassThru)
+                {
+                    $CreatedFile
+                }
+            }
+            elseif (Test-Path $Path -PathType Container)
+            {
+                throw "Path should be a file, not directory"
+            }
+            else
+            {
+                $ExistingFile = Get-Item $Path
+                if ($Property -eq 'Write' -or $Property -eq 'WriteAccess')
+                {
+                    $ExistingFile.LastWriteTime = Get-Date
+                }
+                if ($Property -eq 'Access' -or $Property -eq 'WriteAccess')
+                {
+                    $ExistingFile.LastAccessTime = Get-Date
+                }
+                if ($PassThru)
+                {
+                    $ExistingFile
+                }
+            }
+        }
+    }
 }
 
-Function Get-Size ($file) 
+# Compares the contents of two directories. Optionally include
+# subdirectories (useful if there are empty subdirectories).
+function Compare-Directories
 {
-    If ((Get-Item $file) -is [System.IO.DirectoryInfo])
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$true, Position=1)]
+        [string] $From,
+
+        [Parameter(Mandatory=$true, Position=2)]
+        [string] $To,
+
+        [switch] $IncludeSubdirectories
+    )
+
+    if (!(Test-Path -PathType Container -Path $From))
     {
-        return (Get-ChildItem $file | ForEach-Object { Get-Size ("$file\\$($_.Name)") } | Measure-Object -Sum).Sum
+        throw "Could not find 'From' directory at $From"
     }
-    Else
+    if (!(Test-Path -PathType Container -Path $To))
     {
-        return (Get-Item $file).Length / ([Math]::Pow(1024,2))
+        throw "Could not find 'To' directory at $To"
+    }
+
+    $FromListing = Get-FileListing -Root $From -IncludeDirectories:$IncludeSubdirectories
+    $ToListing = Get-FileListing -Root $To -IncludeDirectories:$IncludeSubdirectories
+
+    Compare-Object -ReferenceObject $FromListing -DifferenceObject $ToListing
+}
+
+# Returns a listing of all files underneath the given root, with the
+# root itself truncated. Useful for comparing diffs between directories.
+function Get-FileListing
+{
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$true, Position=1)]
+        [string] $Root,
+
+        [switch] $IncludeDirectories
+    )
+
+    $FullRoot = Resolve-Path $Root | Select-Object -ExpandProperty Path
+    $FullRoot = $FullRoot.TrimEnd('\') + '\'
+    $FullRootPattern = "^$($FullRoot -replace '\\', '\\')"
+
+    Get-ChildItem -Recurse -Path $FullRoot -File:(!$IncludeDirectories) |
+        Select-Object -ExpandProperty FullName |
+        ForEach-Object { $_ -replace $FullRootPattern, '' } |
+        Sort-Object
+}
+
+# Uses robocopy to delete long file paths that posh/explorer can't
+Function Remove-LongFilePath
+{
+    [CmdletBinding()]
+    param (
+        [Parameter(ValueFromPipelineByPropertyName=$true)]
+        [Alias('FullName')]
+        [string] $Path
+    )
+
+    begin
+    {
+        function ProcessR([string] $Parent, [string] $SourceDir)
+        {
+            # If $Parent is a leaf, just return
+            Write-Verbose "Processing '$Parent'"
+            if (Test-Path -PathType Container -Path $Parent)
+            {
+                # Recursively delete all non-leaf children
+                $Children = Get-ChildItem -Directory -Path $Parent
+                foreach ($Child in $Children)
+                {
+                    ProcessR $Child.FullName $SourceDir
+                }
+
+                # At this point, $Parent should contain no Container nodes
+                Write-Verbose "Deleting '$Parent'"
+                robocopy "$SourceDir" "$Parent" /purge | Write-Verbose
+                $RobocopyExitCode = $LastExitCode
+                Write-Verbose "robocopy exit code: $RobocopyExitCode"
+
+                # Exit codes 0, 1, 2, & 4 do not indicate error in robocopy. :/
+                if ($RobocopyExitCode -ge 8)
+                {
+                    Write-Error "Failed to delete '$Parent'"
+                }
+            }
+        }
+    }
+
+    process
+    {
+        $EmptyTempDir = Join-Path ([System.IO.Path]::GetTempPath()) ([Guid]::NewGuid().ToString())
+        Write-Verbose "robocopy source dir: '$EmptyTempDir'"
+        New-Item -Force -ItemType Directory $EmptyTempDir -ErrorAction Stop | Out-Null
+        try
+        {
+            ProcessR $Path $EmptyTempDir
+        }
+        finally
+        {
+            Remove-Item -Force -Recurse -Path $EmptyTempDir -ErrorAction Continue
+        }
     }
 }
 
+# Converts a given file to a given encoding.
+Function ConvertTo-Encoding
+{
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$true, ValueFromPipelineByPropertyName=$true)]
+        [Alias('FullName')]
+        [string] $Path,
+
+        [System.Text.Encoding] $Encoding = [System.Text.Encoding]::UTF8
+    )
+
+    process
+    {
+        if (!(Test-Path -PathType Leaf -Path $Path))
+        {
+            Write-Error "Could not find file at path '$Path'"
+        }
+        else
+        {
+            $TempPath = [System.IO.Path]::GetTempFileName()
+            Write-Verbose "Converting file $Path -> $TempPath"
+            Get-Content -Path $Path |
+                ForEach-Object { [System.IO.File]::AppendAllText($TempPath, $_+"`n", $Encoding) }
+            Write-Verbose "Moving $TempPath -> $Path"
+            Move-Item -Force -Path $TempPath -Destination $Path
+        }
+    }
+}
+
+# Gets the size of alls items for each child of the given directory.
 Function Get-ChildSizes ($dir=".\")
 {
     If (-Not (Get-Item $dir) -is [System.IO.DirectoryInfo])
@@ -38,75 +206,10 @@ Function Get-ChildSizes ($dir=".\")
     Get-ChildItem $dir | Format-Table Name, @{Label="Size"; Expression={"{0:N4} MB" -f (Get-Size "$dir\\$($_.Name)")}}
 }
 
-Function Kill-AgentsProcess () {
-	$proc = (Get-Process | where {$_.Name -Like "*kCura.Agent.Manager.WinForm*"})
-	If ($proc)
-	{
-		Stop-Process $proc
-		Return $?
-	}
-	Return $true
-}
-
-Function Open-InNotepadPP ($file)
+# Gets the size of a given folder. Did not write it myself,
+# but don't know where it came from.
+function Get-FolderSize
 {
-    & "C:\Program Files (x86)\Notepad++\notepad++.exe" $file
-}
-
-Function Redirect-ToFile ([string] $file, [string[]] $lines=$null, [switch] $Append)
-{
-    begin
-    {
-        $RedirectToFileBufferMaxSize = 500
-        $RedirectToFileBuffer = @()
-        if ($Append -And ($lines -ne $null))
-        {
-            Add-Content $file $lines
-        }
-        else
-        {
-            Set-Content $file $lines
-        }
-    }
-
-    process
-    {
-        $RedirectToFileBuffer += $_
-        if ($RedirectToFileBuffer -ge $RedirectToFileBufferMaxSize)
-        {
-            Add-Content $file $RedirectToFileBuffer
-            $RedirectToFileBuffer = @()
-        }
-    }
-
-    end
-    {
-        Add-Content $file $RedirectToFileBuffer
-        $RedirectToFileBuffer = $null
-    }
-}
-
-# From: http://weblogs.asp.net/adweigert/powershell-adding-the-using-statement
-Function Using-Object {
-    param (
-        [System.IDisposable] $inputObject = $(throw "The parameter -inputObject is required."),
-        [ScriptBlock] $scriptBlock = $(throw "The parameter -scriptBlock is required.")
-    )
-
-    Try {
-        &$scriptBlock
-    } Finally {
-        if ($inputObject -ne $null) {
-            if ($inputObject.psbase -eq $null) {
-                $inputObject.Dispose()
-            } else {
-                $inputObject.psbase.Dispose()
-            }
-        }
-    }
-}
-
-function Get-FolderSize {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory=$true,ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true)] [string[]] $Path,
@@ -217,6 +320,7 @@ function Get-FolderSize {
     }
 }
 
+# Wrapper around Get-FolderSize to get the size of all immediate subdirectories of a directory.
 function Get-FolderSizeListing($path=".")
 {
     if (-Not (Test-Path $path))
@@ -228,10 +332,281 @@ function Get-FolderSizeListing($path=".")
     Return
 }
 
-function ll
+##############################
+# Powershell utilities
+##############################
+
+# Adds a running index to a piped-in collection
+Function Add-Index
 {
-    ls | sort -Property LastWriteTime
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$true, ValueFromPipeline=$true)]
+        [object] $Value
+    )
+
+    begin
+    {
+        $CurrentIndex = -1
+    }
+
+    process
+    {
+        $CurrentIndex += 1
+        New-Object PSObject -Property @{ Index = $CurrentIndex; Value = $Value }
+    }
 }
+
+# Creates an instance of an object given the generic type name. The type name
+# SHOULD NOT include the marker for number of arguments (e.g. you should use
+# 'System.Collections.Generic.List', not 'System.Collections.Generic.List`1').
+Function New-GenericObject
+{
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$true, Position=0)]
+        [string] $TypeName,
+
+        [Parameter(Mandatory=$true, Position=1)]
+        [Alias('Of')]
+        [string[]] $TypeParameters,
+
+        [Parameter(Position=2)]
+        [object[]] $ArgumentList
+    )
+    
+    $NumTypeParams = $TypeParameters.Length
+    if ($TypeParameters.Length -eq 0)
+    {
+        throw 'Expecting at least one type parameter'
+    }
+    # TODO: Given TypeName 'Bleh`X', confirm X == $NumTypeParams
+    if (!($TypeName -match '`[\d]+$'))
+    {
+        $FullTypeName = $TypeName + "``$NumTypeParams"
+    }
+    else
+    {
+        $FullTypeName = $TypeName
+    }
+
+    $GenericTypeDef = $FullTypeName -as 'Type'
+    $TypeParametersLit = ($TypeParameters | ForEach-Object { $_ -as 'Type' })
+    $GenericType = $GenericTypeDef.MakeGenericType($TypeParametersLit)
+
+    New-Object $GenericType -ArgumentList $ArgumentList
+}
+
+# Changes the foreground color of the terminal prompt back to the
+# default (in this case, white).
+Function Reset-ForegroundColor
+{
+    [console]::ForegroundColor = 'White'
+}
+
+# From: http://weblogs.asp.net/adweigert/powershell-adding-the-using-statement
+# Allows the robust usage of an IDisposable within a script block.
+Function Using-Object {
+    param (
+        [System.IDisposable] $inputObject = $(throw "The parameter -inputObject is required."),
+        [ScriptBlock] $scriptBlock = $(throw "The parameter -scriptBlock is required.")
+    )
+
+    Try {
+        &$scriptBlock
+    } Finally {
+        if ($inputObject -ne $null) {
+            if ($inputObject.psbase -eq $null) {
+                $inputObject.Dispose()
+            } else {
+                $inputObject.psbase.Dispose()
+            }
+        }
+    }
+}
+
+##############################
+# Unix standins/replacements
+##############################
+
+New-Alias -Name touch -Value Update-FileTimestampAttribute
+New-Alias -Name grep -Value Select-String
+
+# Basically an alias for `measure | select Count`
+Function count
+{
+    [CmdletBinding()]
+    param (
+        [Parameter(ValueFromPipeline=$true)]
+        [object[]] $Input
+    )
+
+    $Input | Measure-Object | Select-Object -Property Count
+}
+
+# A poor man's `tee`.
+Function Redirect-ToFile ([string] $file, [string[]] $lines=$null, [switch] $Append)
+{
+    begin
+    {
+        $RedirectToFileBufferMaxSize = 500
+        $RedirectToFileBuffer = @()
+        if ($Append -And ($lines -ne $null))
+        {
+            Add-Content $file $lines
+        }
+        else
+        {
+            Set-Content $file $lines
+        }
+    }
+
+    process
+    {
+        $RedirectToFileBuffer += $_
+        if ($RedirectToFileBuffer -ge $RedirectToFileBufferMaxSize)
+        {
+            Add-Content $file $RedirectToFileBuffer
+            $RedirectToFileBuffer = @()
+        }
+    }
+
+    end
+    {
+        Add-Content $file $RedirectToFileBuffer
+        $RedirectToFileBuffer = $null
+    }
+}
+
+##############################
+# Git utilities
+##############################
+
+# Removes branches in the current Git repository that track a no-
+# longer-existing remote branch.
+Function Remove-OrphanedLocalBranches
+{
+    [CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='High')]
+    param (
+        [switch] $DryRun,
+
+        [switch] $Force
+    )
+
+    if ($DryRun -and $Force)
+    {
+        Write-Warning 'Both -DryRun and -Force specified; ignoring -Force'
+    }
+
+    if (!(Test-InGitRepo))
+    {
+        throw 'Not in a Git repo'
+    }
+    else
+    {
+        $Orphans = (git branch -vv | Where-Object { $_ -match '\[.*gone\]' } | ForEach-Object { $_.TrimStart().Split()[0] })
+        if ($DryRun)
+        {
+            if ($Orphans.Count -gt 0)
+            {
+                Write-Host 'Running this command without -DryRun will delete the following branches:'
+                $Orphans | Write-Host
+            }
+            else
+            {
+                Write-Host 'Running this command without -DryRun will delete no branches.'
+            }
+        }
+        else
+        {
+            foreach ($Orphan in $Orphans)
+            {
+                if (!$Force -and !$PSCmdlet.ShouldProcess("local branch: $Orphan", 'delete'))
+                {
+                    Write-Warning "Skipping $Orphan"
+                }
+                else
+                {
+                    git branch -d $Orphan
+                }
+            }
+        }
+    }
+}
+
+# Returns true if cwd is in a Git repo, false otherwise.
+Function Test-InGitRepo
+{
+    git rev-parse --show-top-level 2>&1 | Out-Null
+    $?
+}
+
+# Removes all files untracked by Git in the current repo.
+function Remove-UntrackedFiles
+{
+    [CmdletBinding()]
+    param (
+        [string] $Pattern,
+
+        [switch] $WhatIf
+    )
+
+    if ([String]::IsNullOrEmpty($Pattern))
+    {
+        $Pattern = "*"
+    }
+
+    $filesToRemove = (git status --short | ? {$_ -like '[?][?] *'} | ForEach-Object {$_.TrimStart('?? ')} | ? {$_ -like "$Pattern"})
+    if ($filesToRemove -ne $null)
+    {
+        foreach ($f in $filesToRemove)
+        {
+            Remove-Item -Recurse (Resolve-Path $f) -WhatIf:$WhatIf
+        }
+    }
+}
+
+##################################
+# Assorted workflow utilities
+##################################
+
+# Opens the given file in Notepad++.
+Function Open-InNotepadPP ($file)
+{
+    & "C:\Program Files (x86)\Notepad++\notepad++.exe" $file
+}
+
+# Compiles a UML diagram from the given path. Assumes that java.exe is in
+# the current user's path and that the PlantUML jar is located somewhere.
+function New-PlantUmlDiagram
+{
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$true, ValueFromPipeline=$true)]
+        [string]
+        $Path,
+
+        [string]
+        $JarPath = "$HOME\bin\plantuml.jar"
+    )
+
+    process {
+        $pathNorm = Resolve-Path $Path
+        if ($pathNorm -ne $null)
+        {
+            Write-Verbose "Compiling diagram at '$Path'"
+
+            # Paths are quoted b/c we're calling out of Powershell land
+            java -jar "$JarPath" "$pathNorm"
+            if ($LastExitCode -ne 0)
+            {
+                throw "Failed to compile PlantUML diagram in '$Path'"
+            }
+        }
+    }
+}
+
+New-Alias -Name "Compile-PlantUmlDiagram" -Value "New-PlantUmlDiagram"
 
 ###################################
 # Vim editing
@@ -239,13 +614,12 @@ function ll
 
 # From: http://www.expatpaul.eu/2014/04/vim-in-powershell/
 
-Set-Alias vim "C:/Program Files (x86)/Vim/Vim74/./vim.exe"
+Set-Alias vim "C:\Program Files (x86)\Vim\vim80\vim.exe"
 
 # To edit the Powershell Profile
-# (Not that I'll remember this)
 Function Edit-Profile
 {
-    vim $profile.AllUsersAllHosts
+    vim $profile.CurrentUserCurrentHost
 }
 
 # To edit Vim settings
@@ -254,6 +628,7 @@ Function Edit-Vimrc
     vim $HOME\_vimrc
 }
 
+# To edit the AutoHotkey profile
 Function Edit-AutoHotKey
 {
     vim $HOME\profile.ahk

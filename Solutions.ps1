@@ -1,66 +1,28 @@
+. $PSScriptRoot\Utilities.ps1
+
 ###################################
 # Project finder functions
 ###################################
 
-Function Has-Parent([string] $parent, [string] $dir, [bool] $silent)
+# Returns true if cwd is in a Git repo, false otherwise.
+Function Test-InGitRepo
 {
-    $retVal = $false
-    if ([String]::IsNullOrEmpty($dir))
-    {
-        $dir = Get-Location
-    }
-
-    if ((-Not (Test-Path $dir)) -And $silent)
-    {
-        Write-Warning "Path $dir not found"
-        return $false
-    }
-
-    $curDir = Resolve-Path $dir
-
-    while (-Not [String]::IsNullOrEmpty($curDir))
-    {
-        $dirToCheck = [System.IO.Path]::Combine($curDir, $parent)
-        $retVal = (Test-Path $dirToCheck)
-        if ($retVal)
-        {
-            $curDir = $null
-        }
-        else
-        {
-            $curDir = Split-Path -Parent $curDir
-        }
-    }
-
-    return $retVal
-}
-
-Function IsIn-HgRepo([string] $dir = $null, [switch] $Silent)
-{
-    Return (Has-Parent ".hg" $dir $Silent)
-}
-
-Function IsIn-GitRepo([string] $dir = $null, [switch] $Silent)
-{
-    Return (Has-Parent ".git" $dir $Silent)
+    git rev-parse --show-top-level 2>&1 | Out-Null
+    $?
 }
 
 Function Check-RootOrDefault([string] $Root)
 {
     if ([String]::IsNullOrEmpty($Root))
     {
-        if (IsIn-HgRepo -Silent)
-        {
-            $Root = (hg root 2>$null)
-        }
-        elseif (IsIn-GitRepo -Silent)
+        if (Test-InGitRepo ".")
         {
             $Root = Get-GitRoot "."
         }
     }
     if ([String]::IsNullOrEmpty($Root) -Or (!(Test-Path $Root)))
     {
-        throw [System.ArgumentException] "Invalid root path was provided or current directory is not in an hg repository.`n"
+        throw [System.ArgumentException] "Invalid root path was provided or current directory is not in a Git repository.`n"
     }
     return $Root
 }
@@ -75,24 +37,20 @@ Function Get-RootData([Parameter(Mandatory=$true)][string] $Root, [switch] $Dont
     pushd $Root
     try
     {
-        if (IsIn-HgRepo $Root)
-        {
-            $rootPath = (hg root 2>$null) # We're gonna assume that this returns an absolute path so we don't have to pepper -Resolve everywhere
-        }
-        elseif (IsIn-GitRepo $Root)
+        if (IsIn-GitRepo $Root)
         {
             $rootPath = Get-GitRoot $Root
         }
         else
         {
-            throw [System.ArgumentException] "This script only works effectively when run for an hg or git repository; $Root is not a repository.`n"
+            throw [System.ArgumentException] "This script only works effectively when run against a Git repository; $Root is not a repository.`n"
         }
 
         $rootName = (Split-Path -Leaf $rootPath)
         $solutionMapFile = [System.IO.Path]::Combine((Split-Path -Parent $rootPath), ".solutions-$rootName")
         if (!(Test-Path $solutionMapFile) -And $DontCreateSolutionMap)
         {
-            New-Item -ItemType File $solutionMapFile >$null
+            New-Item -ItemType File $solutionMapFile | Out-Null
         }
         $rootData = @{"Name" = $rootName; "Path" = $rootPath; "Map" = $solutionMapFile}
     }
@@ -104,7 +62,7 @@ Function Get-RootData([Parameter(Mandatory=$true)][string] $Root, [switch] $Dont
     return $rootData
 }
 
-Function Find-SolutionsWithProject([Parameter(Mandatory=$true)][string] $ProjectPattern, [string] $Root, [switch] $Exact)
+Function Find-SolutionsWithProject([Parameter(Mandatory=$true)][string[]] $ProjectPatterns, [string] $Root, [switch] $Exact)
 {
     $Root = Check-RootOrDefault $Root
     pushd $Root
@@ -112,39 +70,54 @@ Function Find-SolutionsWithProject([Parameter(Mandatory=$true)][string] $Project
     {
         $rootData = Get-RootData $Root
         $solutionMapFile = $rootData.Get_Item("Map")
-        $matchingSolutions = @()
         if ($Exact)
         {
-            $cleanPattern = $ProjectPattern
             $matchFunc =
             {
-                param([string] $proj)
-                return $proj -eq $cleanPattern
+                param([string] $proj, [string] $pattern)
+                return $proj -eq $pattern
             }
         }
         else
         {
-            $cleanPattern = [String]::Format("*{0}*", $ProjectPattern.Trim("*"))
-            $matchFunc = 
+            $matchFunc =
             {
-                param([string] $proj)
-                return $proj -like $cleanPattern
+                param([string] $proj, [string] $pattern)
+                return $proj -like [String]::Format("*{0}*", $pattern.Trim("*"))
             }
         }
-        foreach ($solution in (cat $solutionMapFile))
+        $matchingSolutionsSetCollection = @()
+        foreach ($projectPattern in $ProjectPatterns)
         {
-            if (Test-Path $solution)
+            $matchingSolutions = @()
+            foreach ($solution in (cat $solutionMapFile))
             {
-                $projects = Load-ProjectRefs($solution)
-                $matchingProjects = ($projects | where {$matchFunc.Invoke($_.Name)})
-                if ($matchingProjects)
+                if (Test-Path $solution)
                 {
-                    $matchingSolutions += ,$solution
+                    $projects = Load-ProjectRefs($solution)
+                    $matchingProjects = ($projects | where {$matchFunc.Invoke($_.Name, $projectPattern)})
+                    if ($matchingProjects)
+                    {
+                        $matchingSolutions += ,$solution
+                    }
                 }
             }
+
+            $matchingSolutionsSet = New-GenericObject System.Collections.Generic.HashSet -Of string
+            foreach ($soln in $matchingSolutions)
+            {
+                $matchingSolutionsSet.Add($soln) | Out-Null
+            }
+            $matchingSolutionsSetCollection += ,$matchingSolutionsSet
+            Write-Verbose "Solution set for '$projectPattern': $matchingSolutionsSet"
+        }
+        $runningSolutionsSet = $matchingSolutionsSetCollection[0]
+        foreach ($solutionsSet in $matchingSolutionsSetCollection)
+        {
+            $runningSolutionsSet.IntersectWith($solutionsSet)
         }
 
-        return $matchingSolutions
+        return $runningSolutionsSet
     }
     finally
     {
@@ -162,8 +135,8 @@ Function Update-SolutionMap([string] $Root)
         $rootName = $rootData.Get_Item("Name")
         $rootPath = $rootData.Get_Item("Path")
         $solutionMapFile = $rootData.Get_Item("Map")
-        $solutions = (ls $Root -Recurse -Include *.sln | %{$_.FullName}) # `select FullName` gives us back hashmaps with a single FullName key; we just want strings
-        
+        $solutions = (Get-ChildItem -Path $Root -Recurse -Include *.sln | Select-Object -ExpandProperty FullName)
+
         Set-Content -Path $solutionMapFile -Value $solutions
     }
     finally
@@ -220,7 +193,8 @@ Add-Type -TypeDefinition @"
     {
         VS2010,
         VS2012,
-        VS2015
+        VS2015,
+        VS2017
     }
 "@
 
@@ -228,10 +202,24 @@ $VersionToExe = @{
     [VisualStudioVersion]::VS2010 = "C:\Program Files (x86)\Microsoft Visual Studio 10.0\Common7\IDE\devenv.exe";
     [VisualStudioVersion]::VS2012 = "C:\Program Files (x86)\Microsoft Visual Studio 11.0\Common7\IDE\devenv.exe";
     [VisualStudioVersion]::VS2015 = "C:\Program Files (x86)\Microsoft Visual Studio 14.0\Common7\IDE\devenv.exe"
+    [VisualStudioVersion]::VS2017 = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Professional\Common7\IDE\devenv.exe"
 }
 
-Function Open-Solution([string] $SolutionPattern = "*", [string] $Root, [switch] $TakeFirst, [VisualStudioVersion] $With = [VisualStudioVersion]::VS2015)
+Function Open-Solution
 {
+	param (
+		[Alias('FullName')]
+		[ValidateNotNullOrEmpty()]
+		[Parameter(ValueFromPipelineByParameterName=$true)]
+		[string] $SolutionPattern = "*",
+
+		[string] $Root,
+
+		[switch] $TakeFirst,
+
+		[VisualStudioVersion] $With = [VisualStudioVersion]::VS2017
+	)
+
     if ([String]::IsNullOrEmpty($SolutionPattern))
     {
         throw [System.ArgumentException] "`$SolutionPattern must not be null or empty!`n"
@@ -257,8 +245,8 @@ Function Open-Solution([string] $SolutionPattern = "*", [string] $Root, [switch]
     }
     if ($possibleSolutions.Count -gt 1 -And (!$TakeFirst))
     {
-        Write-Output "Multiple solutions matching pattern $SolutionPattern found; please be more specific:"
-        Write-Output $possibleSolutions
+        Write-Warning "Multiple solutions matching pattern $SolutionPattern found; please be more specific:"
+        Write-Warning $possibleSolutions
     }
     elseif ($possibleSolutions.Count -eq 0)
     {
