@@ -263,7 +263,7 @@ Function Open-Solution
     }
 }
 
-Function List-Solutions([string] $Root)
+Function Get-Solutions([string] $Root)
 {
     $Root = Check-RootOrDefault $Root
 
@@ -272,4 +272,7 @@ Function List-Solutions([string] $Root)
     Write-Output (cat $solutionMap)
 }
 
-Export-ModuleMember -Function 'Find-SolutionsWithProject','List-Solutions','Open-Solution','Update-SolutionMap'
+New-Alias -Name List-Solutions -Value Get-Solutions
+
+Export-ModuleMember -Function 'Get-Solutions','Find-SolutionsWithProject','Open-Solution','Update-SolutionMap' `
+                    -Alias 'List-Solutions'

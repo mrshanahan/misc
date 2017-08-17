@@ -406,7 +406,7 @@ Function Reset-ForegroundColor
 
 # From: http://weblogs.asp.net/adweigert/powershell-adding-the-using-statement
 # Allows the robust usage of an IDisposable within a script block.
-Function Using-Object {
+Function Invoke-Using {
     param (
         [System.IDisposable] $inputObject = $(throw "The parameter -inputObject is required."),
         [ScriptBlock] $scriptBlock = $(throw "The parameter -scriptBlock is required.")
@@ -424,6 +424,8 @@ Function Using-Object {
         }
     }
 }
+
+New-Alias -Name Using-Object -Value Invoke-Using
 
 ##############################
 # Unix standins/replacements
@@ -445,7 +447,7 @@ Function count
 }
 
 # A poor man's `tee`.
-Function Redirect-ToFile ([string] $file, [string[]] $lines=$null, [switch] $Append)
+Function Out-ToFile ([string] $file, [string[]] $lines=$null, [switch] $Append)
 {
     begin
     {
@@ -477,6 +479,8 @@ Function Redirect-ToFile ([string] $file, [string[]] $lines=$null, [switch] $App
         $RedirectToFileBuffer = $null
     }
 }
+
+New-Alias -Name Redirect-ToFile -Value Out-ToFile
 
 ##############################
 # Git utilities
