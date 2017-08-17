@@ -1,4 +1,4 @@
-Import-Module -Force $PSScriptRoot\Utilities.psm1
+Import-Module $PSScriptRoot\Utilities.psm1
 
 # Returns true if cwd is in a Git repo, false otherwise.
 Function Test-InGitRepo
