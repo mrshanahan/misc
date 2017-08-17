@@ -1,8 +1,4 @@
-. $PSScriptRoot\Utilities.ps1
-
-###################################
-# Project finder functions
-###################################
+Import-Module -Force $PSScriptRoot\Utilities.psm1
 
 # Returns true if cwd is in a Git repo, false otherwise.
 Function Test-InGitRepo
@@ -11,6 +7,8 @@ Function Test-InGitRepo
     $?
 }
 
+# Returns the root of the repo if $Root is in a Git repo, otherwise returns the
+# default (if provided) or throws (if not provided)
 Function Check-RootOrDefault([string] $Root)
 {
     if ([String]::IsNullOrEmpty($Root))
@@ -27,6 +25,7 @@ Function Check-RootOrDefault([string] $Root)
     return $Root
 }
 
+# Returns a HashTable containing info about the Git root and its solution map
 Function Get-RootData([Parameter(Mandatory=$true)][string] $Root, [switch] $DontCreateSolutionMap)
 {
     if (!(Test-Path $Root))
@@ -60,6 +59,72 @@ Function Get-RootData([Parameter(Mandatory=$true)][string] $Root, [switch] $Dont
     }
 
     return $rootData
+}
+
+# Returns the Windows-style path to the Git root of the given working dir, else throws
+Function Get-GitRoot([string] $wd = ".")
+{
+    $wd = Resolve-Path $wd
+    pushd $wd
+    try
+    {
+        $root = (git rev-parse --show-toplevel 2>$null)
+        if ((!$?) -Or [String]::IsNullOrEmpty($root))
+        {
+            throw [System.Exception] "Path $wd is not in a git repo!"
+        }
+        $windowsRoot = (Resolve-Path $root).Path # git rev-parse returns a Unix-y path
+        Return $windowsRoot
+    }
+    finally
+    {
+        popd
+    }
+}
+
+# Loads project references from the given solution
+Function Load-ProjectRefs([Parameter(Mandatory=$true)][string] $Solution)
+{
+    $projectRegexText = "Project\(`"{([^}]*)}`"\)[\s]*=[\s]*`"([^`"]*)`",[\s]*`"([^`"]*)`",[\s]*`"{([^}]*)}`"[\n\s]*EndProject"
+    $projectRegex = New-Object System.Text.RegularExpressions.Regex($projectRegexText, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+
+    $solutionParent = (Split-Path -Resolve -Parent $Solution)
+    $projectMatches = $projectRegex.Matches((cat $Solution))
+    $retVal = @()
+    foreach ($match in $projectMatches)
+    {
+        $projectPath = [System.IO.Path]::Combine($solutionParent, $match.Groups[3].Value)
+        $absoluteProjectPath = [System.IO.Path]::GetFullPath($projectPath)
+        $projectDict = @{}
+        $projectDict["Type"] = $match.Groups[1].Value
+        $projectDict["Name"] = $match.Groups[2].Value
+        $projectDict["Path"] = $absoluteProjectPath
+        $projectDict["Guid"] = $match.Groups[4].Value
+        $projectObj = New-Object -TypeName PSObject -Property $projectDict
+        $retVal += ,$projectObj
+    }
+    return $retVal
+}
+
+###############################
+# Begin public types/functions
+###############################
+
+Add-Type -TypeDefinition @"
+    public enum VisualStudioVersion
+    {
+        VS2010,
+        VS2012,
+        VS2015,
+        VS2017
+    }
+"@
+
+$VersionToExe = @{
+    [VisualStudioVersion]::VS2010 = "C:\Program Files (x86)\Microsoft Visual Studio 10.0\Common7\IDE\devenv.exe";
+    [VisualStudioVersion]::VS2012 = "C:\Program Files (x86)\Microsoft Visual Studio 11.0\Common7\IDE\devenv.exe";
+    [VisualStudioVersion]::VS2015 = "C:\Program Files (x86)\Microsoft Visual Studio 14.0\Common7\IDE\devenv.exe"
+    [VisualStudioVersion]::VS2017 = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Professional\Common7\IDE\devenv.exe"
 }
 
 Function Find-SolutionsWithProject([Parameter(Mandatory=$true)][string[]] $ProjectPatterns, [string] $Root, [switch] $Exact)
@@ -145,66 +210,6 @@ Function Update-SolutionMap([string] $Root)
     }
 }
 
-Function Get-GitRoot([string] $wd = ".")
-{
-    $wd = Resolve-Path $wd
-    pushd $wd
-    try
-    {
-        $root = (git rev-parse --show-toplevel 2>$null)
-        if ((!$?) -Or [String]::IsNullOrEmpty($root))
-        {
-            throw [System.Exception] "Path $wd is not in a git repo!"
-        }
-        $windowsRoot = (Resolve-Path $root).Path # git rev-parse returns a Unix-y path
-        Return $windowsRoot
-    }
-    finally
-    {
-        popd
-    }
-}
-
-Function Load-ProjectRefs([Parameter(Mandatory=$true)][string] $Solution)
-{
-    $projectRegexText = "Project\(`"{([^}]*)}`"\)[\s]*=[\s]*`"([^`"]*)`",[\s]*`"([^`"]*)`",[\s]*`"{([^}]*)}`"[\n\s]*EndProject"
-    $projectRegex = New-Object System.Text.RegularExpressions.Regex($projectRegexText, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
-
-    $solutionParent = (Split-Path -Resolve -Parent $Solution)
-    $projectMatches = $projectRegex.Matches((cat $Solution))
-    $retVal = @()
-    foreach ($match in $projectMatches)
-    {
-        $projectPath = [System.IO.Path]::Combine($solutionParent, $match.Groups[3].Value)
-        $absoluteProjectPath = [System.IO.Path]::GetFullPath($projectPath)
-        $projectDict = @{}
-        $projectDict["Type"] = $match.Groups[1].Value
-        $projectDict["Name"] = $match.Groups[2].Value
-        $projectDict["Path"] = $absoluteProjectPath
-        $projectDict["Guid"] = $match.Groups[4].Value
-        $projectObj = New-Object -TypeName PSObject -Property $projectDict
-        $retVal += ,$projectObj
-    }
-    return $retVal
-}
-
-Add-Type -TypeDefinition @"
-    public enum VisualStudioVersion
-    {
-        VS2010,
-        VS2012,
-        VS2015,
-        VS2017
-    }
-"@
-
-$VersionToExe = @{
-    [VisualStudioVersion]::VS2010 = "C:\Program Files (x86)\Microsoft Visual Studio 10.0\Common7\IDE\devenv.exe";
-    [VisualStudioVersion]::VS2012 = "C:\Program Files (x86)\Microsoft Visual Studio 11.0\Common7\IDE\devenv.exe";
-    [VisualStudioVersion]::VS2015 = "C:\Program Files (x86)\Microsoft Visual Studio 14.0\Common7\IDE\devenv.exe"
-    [VisualStudioVersion]::VS2017 = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Professional\Common7\IDE\devenv.exe"
-}
-
 Function Open-Solution
 {
 	param (
@@ -266,3 +271,5 @@ Function List-Solutions([string] $Root)
     $solutionMap = $rootData.Get_Item("Map")
     Write-Output (cat $solutionMap)
 }
+
+Export-ModuleMember -Function 'Find-SolutionsWithProject','List-Solutions','Open-Solution','Update-SolutionMap'
