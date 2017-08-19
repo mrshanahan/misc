@@ -36,7 +36,7 @@ Function Get-RootData([Parameter(Mandatory=$true)][string] $Root, [switch] $Dont
     pushd $Root
     try
     {
-        if (IsIn-GitRepo $Root)
+        if (Test-InGitRepo $Root)
         {
             $rootPath = Get-GitRoot $Root
         }
@@ -215,7 +215,7 @@ Function Open-Solution
 	param (
 		[Alias('FullName')]
 		[ValidateNotNullOrEmpty()]
-		[Parameter(ValueFromPipelineByParameterName=$true)]
+		[Parameter(ValueFromPipelineByPropertyName=$true)]
 		[string] $SolutionPattern = "*",
 
 		[string] $Root,
@@ -274,5 +274,5 @@ Function Get-Solutions([string] $Root)
 
 New-Alias -Name List-Solutions -Value Get-Solutions
 
-Export-ModuleMember -Function 'Get-Solutions','Find-SolutionsWithProject','Open-Solution','Update-SolutionMap' `
+Export-ModuleMember -Function 'Get-GitRoot','Get-Solutions','Find-SolutionsWithProject','Open-Solution','Update-SolutionMap' `
                     -Alias 'List-Solutions'
