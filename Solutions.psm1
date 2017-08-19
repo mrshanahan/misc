@@ -61,27 +61,6 @@ Function Get-RootData([Parameter(Mandatory=$true)][string] $Root, [switch] $Dont
     return $rootData
 }
 
-# Returns the Windows-style path to the Git root of the given working dir, else throws
-Function Get-GitRoot([string] $wd = ".")
-{
-    $wd = Resolve-Path $wd
-    pushd $wd
-    try
-    {
-        $root = (git rev-parse --show-toplevel 2>$null)
-        if ((!$?) -Or [String]::IsNullOrEmpty($root))
-        {
-            throw [System.Exception] "Path $wd is not in a git repo!"
-        }
-        $windowsRoot = (Resolve-Path $root).Path # git rev-parse returns a Unix-y path
-        Return $windowsRoot
-    }
-    finally
-    {
-        popd
-    }
-}
-
 # Loads project references from the given solution
 Function Load-ProjectRefs([Parameter(Mandatory=$true)][string] $Solution)
 {
@@ -125,6 +104,27 @@ $VersionToExe = @{
     [VisualStudioVersion]::VS2012 = "C:\Program Files (x86)\Microsoft Visual Studio 11.0\Common7\IDE\devenv.exe";
     [VisualStudioVersion]::VS2015 = "C:\Program Files (x86)\Microsoft Visual Studio 14.0\Common7\IDE\devenv.exe"
     [VisualStudioVersion]::VS2017 = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Professional\Common7\IDE\devenv.exe"
+}
+
+# Returns the Windows-style path to the Git root of the given working dir, else throws
+Function Get-GitRoot([string] $wd = ".")
+{
+    $wd = Resolve-Path $wd
+    pushd $wd
+    try
+    {
+        $root = (git rev-parse --show-toplevel 2>$null)
+        if ((!$?) -Or [String]::IsNullOrEmpty($root))
+        {
+            throw [System.Exception] "Path $wd is not in a git repo!"
+        }
+        $windowsRoot = (Resolve-Path $root).Path # git rev-parse returns a Unix-y path
+        Return $windowsRoot
+    }
+    finally
+    {
+        popd
+    }
 }
 
 Function Find-SolutionsWithProject([Parameter(Mandatory=$true)][string[]] $ProjectPatterns, [string] $Root, [switch] $Exact)
