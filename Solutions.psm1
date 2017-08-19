@@ -250,8 +250,8 @@ Function Open-Solution
     }
     if ($possibleSolutions.Count -gt 1 -And (!$TakeFirst))
     {
-        Write-Warning "Multiple solutions matching pattern $SolutionPattern found; please be more specific:"
-        Write-Warning $possibleSolutions
+        $messages = @("Multiple solutions matching pattern $SolutionPattern found; please be more specific:") + $possibleSolutions
+        $messages | Out-String | Write-Warning
     }
     elseif ($possibleSolutions.Count -eq 0)
     {
