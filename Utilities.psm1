@@ -573,13 +573,22 @@ Function Get-GitStashes
                 else
                 {
                     Write-Host "$FullRepository`:"
-                    $Stashes | Write-Host
+                    if (-not ([string]::IsNullOrEmpty($Stashes)))
+                    {
+                        $Stashes | Write-Host
+                    }
+                    else
+                    {
+                        Write-Host '<none>'
+                    }
                     Write-Host
                 }
             }
         }
     }
 }
+
+New-Alias -Name List-GitStashes -Value Get-GitStashes
 
 # Removes branches in the current Git repository that track a no-
 # longer-existing remote branch.
