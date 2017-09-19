@@ -508,6 +508,8 @@ New-Alias -Name Redirect-ToFile -Value Out-ToFile
 # Git utilities
 ##############################
 
+# Gets the list of Git stashes in the given repo(s). Mainly used for keeping
+# track of/managing stashes across different clones of the same repo.
 Function Get-GitStashes
 {
     [CmdletBinding()]
