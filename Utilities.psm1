@@ -427,6 +427,28 @@ Function Invoke-Using {
 
 New-Alias -Name Using-Object -Value Invoke-Using
 
+# Creates a PSObject from the given properties.
+Function New-PSObject
+{
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$false, Position=0, ValueFromPipeline=$true)]
+        [Hashtable] $Properties = @{}
+    )
+
+    process
+    {
+        New-Object PSObject -Property $Properties
+    }
+}
+
+# Returns information about the different Powershell Profiles (AllUsersAllHosts, CurrentHostCurrentHost, etc.).
+Function Get-ProfileInfo
+{
+    $ProfileTypes = $Profile | Get-Member | Where-Object MemberType -eq NoteProperty | Select-Object -ExpandProperty Name
+    $ProfileTypes | % { @{Name = $_; Path = $Profile.$_; Exists = Test-Path $Profile.$_; } } | New-PSObject
+}
+
 ##############################
 # Unix standins/replacements
 ##############################
@@ -485,6 +507,77 @@ New-Alias -Name Redirect-ToFile -Value Out-ToFile
 ##############################
 # Git utilities
 ##############################
+
+Function Get-GitStashes
+{
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$false, ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true)]
+        [Alias('FullName')]
+        [string] $Repository = (git rev-parse --show-toplevel 2>$null),
+
+        [switch] $IgnoreNonRepositories,
+
+        [switch] $PassThru
+    )
+
+    process
+    {
+        Write-Verbose "$Repository"
+        if ([string]::IsNullOrEmpty($Repository))
+        {
+            throw 'Could not get Git repository from current location. Navigate to a Git repository or supply one as a parameter.'
+        }
+        elseif (!(Test-Path $Repository -PathType Any))
+        {
+            throw "Path $Repository does not exist."
+        }
+        elseif (!(Test-Path $Repository -PathType Container))
+        {
+            throw "Path $Repository is not a directory."
+        }
+        else
+        {
+            $FullRepository = Resolve-Path -Path $Repository
+            Write-Verbose "Getting stash for: $FullRepository"
+            Push-Location $FullRepository
+            try
+            {
+                $Stashes = (git stash list 2>$null)
+                $IsRepo = $LASTEXITCODE -eq 0
+            }
+            finally
+            {
+                Pop-Location
+            }
+
+            if (!$IsRepo)
+            {
+                if (!$IgnoreNonRepositories)
+                {
+                    Write-Warning "Failed to get stashes: $FullRepository may not be a Git repository."
+                }
+                else
+                {
+                    Write-Verbose "Skipping non-repository $FullRepository"
+                }
+            }
+            else
+            {
+                if ($PassThru)
+                {
+                    @{Repository = $FullRepository; Stashes = $Stashes} | New-PSObject
+                }
+                else
+                {
+                    Write-Host "$FullRepository`:"
+                    $Stashes | Write-Host
+                    Write-Host
+                }
+            }
+        }
+    }
+}
 
 # Removes branches in the current Git repository that track a no-
 # longer-existing remote branch.
