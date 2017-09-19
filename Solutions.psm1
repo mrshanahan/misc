@@ -127,7 +127,7 @@ Function Get-GitRoot([string] $wd = ".")
     }
 }
 
-Function Find-SolutionsWithProject([Parameter(Mandatory=$true)][string[]] $ProjectPatterns, [string] $Root, [switch] $Exact)
+Function Find-SolutionsWithProject([Parameter(Mandatory=$true)][string[]] $ProjectPatterns, [string] $Root, [switch] $NoExact)
 {
     $Root = Check-RootOrDefault $Root
     pushd $Root
@@ -135,12 +135,12 @@ Function Find-SolutionsWithProject([Parameter(Mandatory=$true)][string[]] $Proje
     {
         $rootData = Get-RootData $Root
         $solutionMapFile = $rootData.Get_Item("Map")
-        if ($Exact)
+        if ($NoExact)
         {
             $matchFunc =
             {
                 param([string] $proj, [string] $pattern)
-                return $proj -eq $pattern
+                return $proj -like [String]::Format("*{0}*", $pattern.Trim("*"))
             }
         }
         else
@@ -148,7 +148,7 @@ Function Find-SolutionsWithProject([Parameter(Mandatory=$true)][string[]] $Proje
             $matchFunc =
             {
                 param([string] $proj, [string] $pattern)
-                return $proj -like [String]::Format("*{0}*", $pattern.Trim("*"))
+                return $proj -eq $pattern
             }
         }
         $matchingSolutionsSetCollection = @()
@@ -222,7 +222,7 @@ Function Open-Solution
 
 		[switch] $TakeFirst,
 
-		[VisualStudioVersion] $With = [VisualStudioVersion]::VS2017
+		[VisualStudioVersion] $With = [VisualStudioVersion]::VS2015
 	)
 
     if ([String]::IsNullOrEmpty($SolutionPattern))
