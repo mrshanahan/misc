@@ -508,6 +508,38 @@ New-Alias -Name Redirect-ToFile -Value Out-ToFile
 # Git utilities
 ##############################
 
+# Tests whether the given path represents a Git repo.
+Function Test-GitRepo
+{
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$false, ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true)]
+        [Alias('FullName')]
+        [string] $Repository = (Get-Location).Path
+    )
+
+    process
+    {
+        if (Test-Path -Path $Repository -PathType Container)
+        {
+            Push-Location -Path $Repository
+            try
+            {
+                & git rev-parse --show-toplevel 2>&1 >$null
+                $LastExitCode -eq 0
+            }
+            finally
+            {
+                Pop-Location
+            }
+        }
+        else
+        {
+            $false
+        }
+    }
+}
+
 # Gets the list of Git stashes in the given repo(s). Mainly used for keeping
 # track of/managing stashes across different clones of the same repo.
 Function Get-GitStashes
