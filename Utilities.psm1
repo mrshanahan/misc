@@ -7,8 +7,9 @@ function Update-FileTimestampAttribute
 {
     [CmdletBinding()]
     param (
-        [Parameter(Mandatory=$true, ValueFromPipeline=$true)]
-        [string[]] $Paths,
+        [Parameter(Mandatory=$true, ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true)]
+        [Alias('FullName')]
+        [string] $Path,
 
         [ValidateSet('Write','Access','WriteAccess')]
         [string] $Property = 'WriteAccess',
@@ -18,41 +19,38 @@ function Update-FileTimestampAttribute
 
     process
     {
-        foreach ($Path in $Paths)
+        if (!(Test-Path $Path))
         {
-            if (!(Test-Path $Path))
+            $Parent = Split-Path -Parent -Path $Path
+            if (!([String]::IsNullOrEmpty($Parent)) -and !(Test-Path $Parent))
             {
-                $Parent = Split-Path -Parent -Path $Path
-                if (!([String]::IsNullOrEmpty($Parent)) -and !(Test-Path $Parent))
-                {
-                    throw "Can't find parent of file $Path"
-                }
+                throw "Can't find parent of file $Path"
+            }
 
-                $CreatedFile = New-Item -ItemType File -Path $Path
-                if ($PassThru)
-                {
-                    $CreatedFile
-                }
-            }
-            elseif (Test-Path $Path -PathType Container)
+            $CreatedFile = New-Item -ItemType File -Path $Path
+            if ($PassThru)
             {
-                throw "Path should be a file, not directory"
+                $CreatedFile
             }
-            else
+        }
+        elseif (Test-Path $Path -PathType Container)
+        {
+            throw "Path should be a file, not directory"
+        }
+        else
+        {
+            $ExistingFile = Get-Item $Path
+            if ($Property -eq 'Write' -or $Property -eq 'WriteAccess')
             {
-                $ExistingFile = Get-Item $Path
-                if ($Property -eq 'Write' -or $Property -eq 'WriteAccess')
-                {
-                    $ExistingFile.LastWriteTime = Get-Date
-                }
-                if ($Property -eq 'Access' -or $Property -eq 'WriteAccess')
-                {
-                    $ExistingFile.LastAccessTime = Get-Date
-                }
-                if ($PassThru)
-                {
-                    $ExistingFile
-                }
+                $ExistingFile.LastWriteTime = Get-Date
+            }
+            if ($Property -eq 'Access' -or $Property -eq 'WriteAccess')
+            {
+                $ExistingFile.LastAccessTime = Get-Date
+            }
+            if ($PassThru)
+            {
+                $ExistingFile
             }
         }
     }
@@ -70,7 +68,9 @@ function Compare-Directories
         [Parameter(Mandatory=$true, Position=2)]
         [string] $To,
 
-        [switch] $IncludeSubdirectories
+        [switch] $IncludeDirectories,
+
+        [switch] $NoRecurse
     )
 
     if (!(Test-Path -PathType Container -Path $From))
@@ -82,8 +82,8 @@ function Compare-Directories
         throw "Could not find 'To' directory at $To"
     }
 
-    $FromListing = Get-FileListing -Root $From -IncludeDirectories:$IncludeSubdirectories
-    $ToListing = Get-FileListing -Root $To -IncludeDirectories:$IncludeSubdirectories
+    $FromListing = Get-FileListing -Root $From -IncludeDirectories:$IncludeDirectories -NoRecurse:$NoRecurse
+    $ToListing = Get-FileListing -Root $To -IncludeDirectories:$IncludeDirectories -NoRecurse:$NoRecurse
 
     Compare-Object -ReferenceObject $FromListing -DifferenceObject $ToListing
 }
@@ -97,14 +97,16 @@ function Get-FileListing
         [Parameter(Mandatory=$true, Position=1)]
         [string] $Root,
 
-        [switch] $IncludeDirectories
+        [switch] $IncludeDirectories,
+
+        [switch] $NoRecurse
     )
 
     $FullRoot = Resolve-Path $Root | Select-Object -ExpandProperty Path
     $FullRoot = $FullRoot.TrimEnd('\') + '\'
     $FullRootPattern = "^$($FullRoot -replace '\\', '\\')"
 
-    Get-ChildItem -Recurse -Path $FullRoot -File:(!$IncludeDirectories) |
+    Get-ChildItem -Recurse:(!$NoRecurse) -Path $FullRoot -File:(!$IncludeDirectories) |
         Select-Object -ExpandProperty FullName |
         ForEach-Object { $_ -replace $FullRootPattern, '' } |
         Sort-Object
@@ -197,13 +199,21 @@ Function ConvertTo-Encoding
 }
 
 # Gets the size of alls items for each child of the given directory.
-Function Get-ChildSizes ($dir=".\")
+Function Get-ChildSizes
 {
-    If (-Not (Get-Item $dir) -is [System.IO.DirectoryInfo])
+    [CmdletBinding()]
+    param (
+        [Parameter(Position=0)]
+        [string] $Directory = '.',
+
+        [switch] $IncludeFiles
+    )
+
+    If (-Not (Get-Item -Force $Directory) -is [System.IO.DirectoryInfo])
     {
-        throw [System.ArgumentException] "$dir is not a directory or does not exist.`n"
+        throw [System.ArgumentException] "$Directory is not a directory or does not exist.`n"
     }
-    Get-ChildItem $dir | Format-Table Name, @{Label="Size"; Expression={"{0:N4} MB" -f (Get-Size "$dir\\$($_.Name)")}}
+    Get-ChildItem -Force -Path $Directory -Directory:(!$IncludeFiles) | Get-FolderSize
 }
 
 # Gets the size of a given folder. Did not write it myself,
@@ -212,25 +222,38 @@ function Get-FolderSize
 {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory=$true,ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true)] [string[]] $Path,
+        [Parameter(Mandatory=$true,ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true)]
+        [Alias('FullName')]
+        [string[]] $Path,
+
         [int] $Precision = 4,
-        [switch] $RoboOnly)
-    begin {
+
+        [switch] $RoboOnly
+    )
+
+    begin
+    {
         $FSO = New-Object -ComObject Scripting.FileSystemObject -ErrorAction Stop
-        function Get-RoboFolderSizeInternal {
+        function Get-RoboFolderSizeInternal
+        {
             [CmdletBinding()]
             param(
                 # Paths to report size, file count, dir count, etc. for.
                 [string[]] $Path,
-                [int] $Precision = 4)
-            begin {
-                if (-not (Get-Command -Name robocopy -ErrorAction SilentlyContinue)) {
+                [int] $Precision = 4
+            )
+            begin
+            {
+                if (-not (Get-Command -Name robocopy -ErrorAction SilentlyContinue))
+                {
                     Write-Warning -Message "Fallback to robocopy failed because robocopy.exe could not be found. Path '$p'. $([datetime]::Now)."
                     return
                 }
             }
-            process {
-                foreach ($p in $Path) {
+            process
+            {
+                foreach ($p in $Path)
+                {
                     Write-Verbose -Message "Processing path '$p' with Get-RoboFolderSizeInternal. $([datetime]::Now)."
                     $RoboCopyArgs = @("/L","/S","/NJH","/BYTES","/FP","/NC","/NDL","/TS","/XJ","/R:0","/W:0")
                     [datetime] $StartedTime = [datetime]::Now
@@ -242,7 +265,8 @@ function Get-FolderSize
                     [regex] $BytesLineRegex = 'Bytes\s*:\s*(?<ByteCount>\d+)(?:\s*\d+){3}\s*(?<BytesFailed>\d+)\s*\d+'
                     [regex] $TimeLineRegex = 'Times\s*:\s*(?<TimeElapsed>\d+).*'
                     [regex] $EndedLineRegex = 'Ended\s*:\s*(?<EndedTime>.+)'
-                    if ($Summary -match "$HeaderRegex\s+$DirLineRegex\s+$FileLineRegex\s+$BytesLineRegex\s+$TimeLineRegex\s+$EndedLineRegex") {
+                    if ($Summary -match "$HeaderRegex\s+$DirLineRegex\s+$FileLineRegex\s+$BytesLineRegex\s+$TimeLineRegex\s+$EndedLineRegex")
+                    {
                         $TimeElapsed = [math]::Round([decimal] ($EndedTime - $StartedTime).TotalSeconds, $Precision)
                         New-Object PSObject -Property @{
                             Path = $p
@@ -260,36 +284,46 @@ function Get-FolderSize
 
                         } | Select Path, TotalBytes, TotalMBytes, TotalGBytes, DirCount, FileCount, DirFailed, FileFailed, TimeElapsed, StartedTime, EndedTime
                     }
-                    else {
+                    else
+                    {
                         Write-Warning -Message "Path '$p' output from robocopy was not in an expected format."
                     }
                 }
             }
         }
     }
-    process {
-        foreach ($p in $Path) {
+    process
+    {
+        foreach ($p in $Path)
+        {
+            $p = (Resolve-Path $Path).Path
             Write-Verbose -Message "Processing path '$p'. $([datetime]::Now)."
-            if (-not (Test-Path -Path $p -PathType Container)) {
+            if (-not (Test-Path -Path $p -PathType Container))
+            {
                 Write-Warning -Message "$p does not exist or is a file and not a directory. Skipping."
                 continue
             }
-            if ($RoboOnly) {
+            if ($RoboOnly)
+            {
                 Get-RoboFolderSizeInternal -Path $p -Precision $Precision
                 continue
             }
             $ErrorActionPreference = 'Stop'
-            try {
+            try
+            {
                 $StartFSOTime = [datetime]::Now
                 $TotalBytes = $FSO.GetFolder($p).Size
                 $EndFSOTime = [datetime]::Now
-                if ($TotalBytes -eq $null) {
+                if ($TotalBytes -eq $null)
+                {
                     Get-RoboFolderSizeInternal -Path $p -Precision $Precision
                     continue
                 }
             }
-            catch {
-                if ($_.Exception.Message -like '*PERMISSION*DENIED*') {
+            catch
+            {
+                if ($_.Exception.Message -like '*PERMISSION*DENIED*')
+                {
                     Write-Verbose "Caught a permission denied. Trying robocopy."
                     Get-RoboFolderSizeInternal -Path $p -Precision $Precision
                     continue
@@ -314,7 +348,8 @@ function Get-FolderSize
             } | Select Path, TotalBytes, TotalMBytes, TotalGBytes, DirCount, FileCount, DirFailed, FileFailed, TimeElapsed, StartedTime, EndedTime
         }
     }
-    end {
+    end
+    {
         [void][System.Runtime.Interopservices.Marshal]::ReleaseComObject($FSO)
         [gc]::Collect()
     }
@@ -374,7 +409,7 @@ Function New-GenericObject
         [Parameter(Position=2)]
         [object[]] $ArgumentList
     )
-    
+
     $NumTypeParams = $TypeParameters.Length
     if ($TypeParameters.Length -eq 0)
     {
@@ -546,7 +581,7 @@ Function Get-GitStashes
 {
     [CmdletBinding()]
     param (
-        [Parameter(Mandatory=$false, ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true)]
+        [Parameter(Mandatory=$false, ValueFromPipeline=$true, ValueFromPipelineByPropertyName=$true, Position=0)]
         [Alias('FullName')]
         [string] $Repository = (git rev-parse --show-toplevel 2>$null),
 
@@ -557,63 +592,67 @@ Function Get-GitStashes
 
     process
     {
-        Write-Verbose "$Repository"
         if ([string]::IsNullOrEmpty($Repository))
         {
             throw 'Could not get Git repository from current location. Navigate to a Git repository or supply one as a parameter.'
         }
-        elseif (!(Test-Path $Repository -PathType Any))
+        $repositoryPaths = Get-Item -Path $Repository
+        foreach ($repositoryPath in $repositoryPaths)
         {
-            throw "Path $Repository does not exist."
-        }
-        elseif (!(Test-Path $Repository -PathType Container))
-        {
-            throw "Path $Repository is not a directory."
-        }
-        else
-        {
-            $FullRepository = Resolve-Path -Path $Repository
-            Write-Verbose "Getting stash for: $FullRepository"
-            Push-Location $FullRepository
-            try
+            $isDirectory = Test-Path -Path $repositoryPath -PathType Container
+            if (!$isDirectory -and !$IgnoreNonRepositories)
             {
-                $Stashes = (git stash list 2>$null)
-                $IsRepo = $LASTEXITCODE -eq 0
+                Write-Error "Not a directory: $repositoryPath"
             }
-            finally
+            elseif (!$isDirectory)
             {
-                Pop-Location
-            }
-
-            if (!$IsRepo)
-            {
-                if (!$IgnoreNonRepositories)
-                {
-                    Write-Warning "Failed to get stashes: $FullRepository may not be a Git repository."
-                }
-                else
-                {
-                    Write-Verbose "Skipping non-repository $FullRepository"
-                }
+                Write-Verbose "Skipping non-repository $repositoryPath"
             }
             else
             {
-                if ($PassThru)
+                $fullRepository = Resolve-Path -Path $repositoryPath
+                Write-Verbose "Getting stash for: $fullRepository"
+                Push-Location $fullRepository
+                try
                 {
-                    @{Repository = $FullRepository; Stashes = $Stashes} | New-PSObject
+                    $stashes = (git stash list 2>$null)
+                    $isRepo = $LASTEXITCODE -eq 0
                 }
-                else
+                finally
                 {
-                    Write-Host "$FullRepository`:"
-                    if (-not ([string]::IsNullOrEmpty($Stashes)))
+                    Pop-Location
+                }
+
+                if (!$isRepo)
+                {
+                    if (!$IgnoreNonRepositories)
                     {
-                        $Stashes | Write-Host
+                        Write-Warning "Failed to get stashes: $fullRepository may not be a Git repository."
                     }
                     else
                     {
-                        Write-Host '<none>'
+                        Write-Verbose "Skipping non-repository $fullRepository"
                     }
-                    Write-Host
+                }
+                else
+                {
+                    if ($PassThru)
+                    {
+                        @{Repository = $fullRepository; Stashes = $stashes} | New-PSObject
+                    }
+                    else
+                    {
+                        Write-Host "$fullRepository`:"
+                        if (-not ([string]::IsNullOrEmpty($stashes)))
+                        {
+                            $stashes | Write-Host
+                        }
+                        else
+                        {
+                            Write-Host '<none>'
+                        }
+                        Write-Host
+                    }
                 }
             }
         }
@@ -667,7 +706,7 @@ Function Remove-OrphanedLocalBranches
                 }
                 else
                 {
-                    git branch -d $Orphan
+                    git branch -D $Orphan
                 }
             }
         }
@@ -693,10 +732,10 @@ function Remove-UntrackedFiles
 
     if ([String]::IsNullOrEmpty($Pattern))
     {
-        $Pattern = "*"
+        $Pattern = ".*"
     }
 
-    $filesToRemove = (git status --short | ? {$_ -like '[?][?] *'} | ForEach-Object {$_.TrimStart('?? ')} | ? {$_ -like "$Pattern"})
+    $filesToRemove = (git status --short | ? {$_ -like '[?][?] *'} | ForEach-Object {$_.TrimStart('?? ')} | ? {$_ -match "$Pattern"})
     if ($filesToRemove -ne $null)
     {
         foreach ($f in $filesToRemove)
@@ -709,6 +748,33 @@ function Remove-UntrackedFiles
 ##################################
 # Assorted workflow utilities
 ##################################
+
+Function Open-InChrome
+{
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$true,
+                   ValueFromPipeline=$true,
+                   ValueFromPipelineByPropertyName=$true)]
+        [Alias('FullName')]
+        [string] $Path
+    )
+
+    process
+    {
+        $FullPath = Resolve-Path -Path $Path -ErrorAction SilentlyContinue
+        if ($FullPath -eq $null)
+        {
+            Write-Error "Could not find path $Path"
+        }
+        else
+        {
+            Write-Verbose "Provided path $Path resolved to $FullPath"
+            $Uri = New-Object System.Uri -ArgumentList $FullPath
+            Start-Process 'chrome.exe' "$($Uri.AbsolutePath)", '--profile-directory="Default"'
+        }
+    }
+}
 
 # Opens the given file in Notepad++.
 Function Open-InNotepadPP ($file)
@@ -773,3 +839,10 @@ Function Edit-AutoHotKey
 {
     vim $HOME\profile.ahk
 }
+
+Function Edit-Todo
+{
+    vim $HOME\todo.txt
+}
+
+New-Alias -Name todo -Value Edit-Todo
