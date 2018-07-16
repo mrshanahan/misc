@@ -26,14 +26,22 @@ Function Check-RootOrDefault([string] $Root)
 }
 
 # Returns a HashTable containing info about the Git root and its solution map
-Function Get-RootData([Parameter(Mandatory=$true)][string] $Root, [switch] $DontCreateSolutionMap)
+Function Get-RootData
 {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [string] $Root,
+
+        [switch] $DontCreateSolutionMap
+    )
+
     if (!(Test-Path $Root))
     {
         throw [System.ArgumentException] "Root path $Root not found.`n"
     }
-    $rootData = @{}
-    pushd $Root
+
+    Push-Location $Root
     try
     {
         if (Test-InGitRepo $Root)
@@ -46,24 +54,35 @@ Function Get-RootData([Parameter(Mandatory=$true)][string] $Root, [switch] $Dont
         }
 
         $rootName = (Split-Path -Leaf $rootPath)
-        $solutionMapFile = [System.IO.Path]::Combine((Split-Path -Parent $rootPath), ".solutions-$rootName")
+        $solutionMapFolder = Join-Path ([System.IO.Path]::GetTempPath()) 'SolutionMaps'
+        if (-not (Test-Path $solutionMapFolder))
+        {
+            Write-Verbose "Creating solution map folder: $solutionMapFolder"
+            New-Item -ItemType Directory $solutionMapFolder | Out-Null
+        }
+        $solutionMapFile = [System.IO.Path]::Combine($solutionMapFolder, ".solutions-$rootName")
         if (!(Test-Path $solutionMapFile) -And $DontCreateSolutionMap)
         {
             New-Item -ItemType File $solutionMapFile | Out-Null
         }
-        $rootData = @{"Name" = $rootName; "Path" = $rootPath; "Map" = $solutionMapFile}
+
+        @{"Name" = $rootName; "Path" = $rootPath; "Map" = $solutionMapFile}
     }
     finally
     {
-        popd
+        Pop-Location
     }
-
-    return $rootData
 }
 
 # Loads project references from the given solution
-Function Load-ProjectRefs([Parameter(Mandatory=$true)][string] $Solution)
+Function Load-ProjectRefs
 {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [string] $Solution
+    )
+
     $projectRegexText = "Project\(`"{([^}]*)}`"\)[\s]*=[\s]*`"([^`"]*)`",[\s]*`"([^`"]*)`",[\s]*`"{([^}]*)}`"[\n\s]*EndProject"
     $projectRegex = New-Object System.Text.RegularExpressions.Regex($projectRegexText, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
 
@@ -107,10 +126,15 @@ $VersionToExe = @{
 }
 
 # Returns the Windows-style path to the Git root of the given working dir, else throws
-Function Get-GitRoot([string] $wd = ".")
+Function Get-GitRoot
 {
+    [CmdletBinding()]
+    param (
+        [string] $wd = "."
+    )
+
     $wd = Resolve-Path $wd
-    pushd $wd
+    Push-Location $wd
     try
     {
         $root = (git rev-parse --show-toplevel 2>$null)
@@ -123,18 +147,28 @@ Function Get-GitRoot([string] $wd = ".")
     }
     finally
     {
-        popd
+        Pop-Location
     }
 }
 
-Function Find-SolutionsWithProject([Parameter(Mandatory=$true)][string[]] $ProjectPatterns, [string] $Root, [switch] $NoExact)
+Function Find-SolutionsWithProject()
 {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory=$true)]
+        [string[]] $ProjectPatterns,
+
+        [string] $Root,
+
+        [switch] $NoExact
+    )
+
     $Root = Check-RootOrDefault $Root
-    pushd $Root
+    Push-Location $Root
     try
     {
         $rootData = Get-RootData $Root
-        $solutionMapFile = $rootData.Get_Item("Map")
+        $solutionMapFile = $rootData.Map
         if ($NoExact)
         {
             $matchFunc =
@@ -186,44 +220,50 @@ Function Find-SolutionsWithProject([Parameter(Mandatory=$true)][string[]] $Proje
     }
     finally
     {
-        popd
+        Pop-Location
     }
 }
 
-Function Update-SolutionMap([string] $Root)
+Function Update-SolutionMap
 {
+    [CmdletBinding()]
+    param (
+        [string] $Root
+    )
+
     $Root = Check-RootOrDefault $Root
-    pushd $Root
+    Push-Location $Root
     try
     {
         $rootData = Get-RootData $Root
-        $rootName = $rootData.Get_Item("Name")
-        $rootPath = $rootData.Get_Item("Path")
-        $solutionMapFile = $rootData.Get_Item("Map")
-        $solutions = (Get-ChildItem -Path $Root -Recurse -Include *.sln | Select-Object -ExpandProperty FullName)
+        $rootName = $rootData.Name
+        $rootPath = $rootData.Path
+        $solutionMapFile = $rootData.Map
+        $solutions = (Get-ChildItem -Path $Root -Recurse -ErrorAction $ErrorActionPreference | Where-Object Extension -eq .sln | Select-Object -ExpandProperty FullName)
 
         Set-Content -Path $solutionMapFile -Value $solutions
     }
     finally
     {
-        popd
+        Pop-Location
     }
 }
 
 Function Open-Solution
 {
-	param (
-		[Alias('FullName')]
-		[ValidateNotNullOrEmpty()]
-		[Parameter(ValueFromPipelineByPropertyName=$true)]
-		[string] $SolutionPattern = "*",
+    [CmdletBinding()]
+    param (
+        [Alias('FullName')]
+        [ValidateNotNullOrEmpty()]
+        [Parameter(ValueFromPipelineByPropertyName=$true)]
+        [string] $SolutionPattern = "*",
 
-		[string] $Root,
+        [string] $Root,
 
-		[switch] $TakeFirst,
+        [switch] $TakeFirst,
 
-		[VisualStudioVersion] $With = [VisualStudioVersion]::VS2015
-	)
+        [VisualStudioVersion] $With = [VisualStudioVersion]::VS2015
+    )
 
     if ([String]::IsNullOrEmpty($SolutionPattern))
     {
@@ -234,7 +274,7 @@ Function Open-Solution
     $SolutionPattern = [String]::Format("*{0}*", $SolutionPattern.Trim("*"))
 
     $rootData = Get-RootData $Root -DontCreateSolutionMap
-    $solutionMap = $rootData.Get_Item("Map")
+    $solutionMap = $rootData.Map
     if (!(Test-Path $solutionMap))
     {
         Update-SolutionMap $Root
@@ -263,12 +303,17 @@ Function Open-Solution
     }
 }
 
-Function Get-Solutions([string] $Root)
+Function Get-Solutions
 {
+    [CmdletBinding()]
+    param (
+        [string] $Root
+    )
+
     $Root = Check-RootOrDefault $Root
 
     $rootData = Get-RootData $Root -DontCreateSolutionMap
-    $solutionMap = $rootData.Get_Item("Map")
+    $solutionMap = $rootData.Map
     Write-Output (cat $solutionMap)
 }
 
