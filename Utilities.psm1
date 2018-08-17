@@ -489,7 +489,47 @@ Function Get-ProfileInfo
 ##############################
 
 New-Alias -Name touch -Value Update-FileTimestampAttribute
-New-Alias -Name grep -Value Select-String
+
+Function Edit-String
+{
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, Position=0)]
+        [string] $FindPattern,
+
+        [Parameter(Position=1)]
+        [string] $ReplacePattern,
+
+        [Parameter(ValueFromPipeline)]
+        [string] $Content
+    )
+
+    process
+    {
+        $Content -Replace $FindPattern, $ReplacePattern
+    }
+}
+
+New-Alias -Name sed -Value Edit-String
+
+Function Find-String
+{
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, Position=0)]
+        [string] $Pattern,
+
+        [Parameter(ValueFromPipeline)]
+        [string] $Content
+    )
+
+    process
+    {
+        if ($Content -match $Pattern) { $Content }
+    }
+}
+
+New-Alias -Name grep -Value Find-String
 
 # Basically an alias for `measure | select Count`
 Function count
@@ -661,6 +701,38 @@ Function Get-GitStashes
 
 New-Alias -Name List-GitStashes -Value Get-GitStashes
 
+Function Remove-AllOtherLocalBranches
+{
+    [CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='High')]
+    param (
+        [switch] $Force
+    )
+
+    if (!(Test-GitRepo))
+    {
+        throw 'Not in a Git repo'
+    }
+    else
+    {
+        $localBranches = git branch | grep '^\s*[^*]' | ForEach-Object Trim -WhatIf:$false
+        foreach ($branch in $localBranches)
+        {
+            if (($Force -and !$WhatIfPreference) -or $PSCmdlet.ShouldProcess("local branch: $branch", 'delete'))
+            {
+                $output = git branch -D $branch 2>&1
+                if ($LASTEXITCODE -ne 0)
+                {
+                    Write-Error "Failed to delete branch $branch; Git output:`n$output"
+                }
+                else
+                {
+                    Write-Verbose "GIT: $output"
+                }
+            }
+        }
+    }
+}
+
 # Removes branches in the current Git repository that track a no-
 # longer-existing remote branch.
 Function Remove-OrphanedLocalBranches
@@ -677,7 +749,7 @@ Function Remove-OrphanedLocalBranches
         Write-Warning 'Both -DryRun and -Force specified; ignoring -Force'
     }
 
-    if (!(Test-InGitRepo))
+    if (!(Test-GitRepo))
     {
         throw 'Not in a Git repo'
     }
@@ -713,12 +785,80 @@ Function Remove-OrphanedLocalBranches
     }
 }
 
-# Returns true if cwd is in a Git repo, false otherwise.
-Function Test-InGitRepo
+<#
+    Invokes a script block on each Git branch in the given repository.
+
+    - TODO: Remove all local branches created by this script (optional?)
+    - TODO: Exit if git errors out
+        - sub-TODO: Make it amenable to ErrorAction
+#>
+Function Invoke-GitBranch
 {
-    git rev-parse --show-top-level 2>&1 | Out-Null
-    $?
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact='Low')]
+    param (
+        [Parameter(Position=0)]
+        [ScriptBlock] $Expression,
+
+        [string] $GitRoot = '.',
+
+        [string] $BranchFilter = '',
+
+        [switch] $IncludeRemotes,
+
+        [switch] $Force,
+
+        [switch] $AsObject
+    )
+
+    Push-Location $GitRoot
+    try
+    {
+        $originalBranch = & git rev-parse --abbrev-ref HEAD
+        $branches = & git branch -a |
+                    ForEach-Object {
+                        if ($_ -match '^\s+remotes/origin/([^\s]*)' -and $IncludeRemotes)
+                        {
+                            # Remote branches
+                            $Matches[1]
+                        }
+                        elseif ($_ -match '^\*\s+([^\s]*)')
+                        {
+                            # Current branch
+                            $Matches[1]
+                        }
+                        elseif ($_ -match '^\s+(?!\s*remotes/)')
+                        {
+                            # Local branches
+                            $_.TrimStart(' ')
+                        }
+                    } |
+                    Sort-Object -Unique | Where-Object { $_ -ne 'HEAD' }
+
+        foreach ($branch in $branches)
+        {
+            if (($branch -match $BranchFilter) -and $PSCmdlet.ShouldProcess($branch, "Checkout and invoke expression"))
+            {
+                & git checkout $branch 2>&1 | Write-Verbose
+                $output = $branch | ForEach-Object $Expression
+                if ($AsObject)
+                {
+                    New-Object PSObject -Property @{Branch = $branch; Value = $output}
+                }
+                else
+                {
+                    $output
+                }
+            }
+        }
+    }
+    finally
+    {
+        & git checkout $originalBranch 2>&1 | Write-Verbose
+        Pop-Location
+    }
 }
+
+New-Alias -Name ForEach-GitBranch -Value Invoke-GitBranch
 
 # Removes all files untracked by Git in the current repo.
 function Remove-UntrackedFiles
