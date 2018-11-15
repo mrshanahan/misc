@@ -112,6 +112,46 @@ function Get-FileListing
         Sort-Object
 }
 
+function Get-Children
+{
+    [CmdletBinding()]
+    param (
+        [ValidateScript({ Test-Path $_ -PathType Container })]
+        [string] $Path = '.',
+
+        [string] $Filter = ''
+    )
+
+    begin
+    {
+        $found = New-Object System.Collections.Generic.List[string]
+        $next = New-Object System.Collections.Generic.List[string]
+
+        $initial = (Resolve-Path $Path).Path
+        $next.Add($initial)
+
+        while ($next.Count -gt 0)
+        {
+            $dir = $next[0]
+            $next.RemoveAt(0)
+
+            $files = [System.IO.Directory]::GetFiles($dir)
+            foreach ($f in $files)
+            {
+                if ($f -match $Filter)
+                {
+                    $found.Add($f)
+                }
+            }
+
+            $subDirectories = [System.IO.Directory]::GetDirectories($dir)
+            $next.AddRange($subDirectories)
+        }
+
+        $found
+    }
+}
+
 # Uses robocopy to delete long file paths that posh/explorer can't
 Function Remove-LongFilePath
 {
@@ -917,9 +957,17 @@ Function Open-InChrome
 }
 
 # Opens the given file in Notepad++.
-Function Open-InNotepadPP ($file)
+function Open-InNotepadPP
 {
-    & "C:\Program Files (x86)\Notepad++\notepad++.exe" $file
+    param (
+        [Parameter(ValueFromPipeline)]
+        [string] $File
+    )
+
+    process
+    {
+        & "C:\Program Files (x86)\Notepad++\notepad++.exe" $File
+    }
 }
 
 # Compiles a UML diagram from the given path. Assumes that java.exe is in
@@ -983,6 +1031,11 @@ Function Edit-AutoHotKey
 Function Edit-Todo
 {
     vim $HOME\todo.txt
+}
+
+Function Edit-HostsFile
+{
+    vim C:\Windows\System32\drivers\etc\hosts
 }
 
 New-Alias -Name todo -Value Edit-Todo

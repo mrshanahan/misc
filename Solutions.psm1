@@ -236,10 +236,8 @@ Function Update-SolutionMap
     try
     {
         $rootData = Get-RootData $Root
-        $rootName = $rootData.Name
-        $rootPath = $rootData.Path
         $solutionMapFile = $rootData.Map
-        $solutions = (Get-ChildItem -Path $Root -Recurse -ErrorAction $ErrorActionPreference | Where-Object Extension -eq .sln | Select-Object -ExpandProperty FullName)
+        $solutions = [System.IO.Directory]::GetFiles($Root, "*.sln", [System.IO.SearchOption]::AllDirectories)
 
         Set-Content -Path $solutionMapFile -Value $solutions
     }
