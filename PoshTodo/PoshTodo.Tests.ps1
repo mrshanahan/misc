@@ -2,6 +2,9 @@ using namespace System.Collections.Generic
 
 $moduleName = $MyInvocation.MyCommand.Name.Split('.')[0]
 Import-Module -Force (Join-Path $PSScriptRoot "${moduleName}.psm1")
+Import-Module -Force (Join-Path $PSScriptRoot 'TestHelpers.psm1')
+
+$ErrorActionPreference = 'Stop'
 
 # We use InModuleScope here so we can mock out the repository functions
 # (see the "Private" section of the module).
@@ -1463,119 +1466,21 @@ InModuleScope PoshTodo {
     }
 
     Describe 'Integration' {
-        function Assert-TodoInResults
-        {
-            [CmdletBinding()]
-            param (
-                [Parameter(Mandatory)]
-                [Todo[]] $Results,
-                
-                [Parameter(ValueFromPipeline)]
-                [Todo] $Item
-            )
-
-            process
-            {
-                $actual = $results | Where-Object Description -eq $Item.Description
-                $actual | Should -Not -BeNull
-                $actual.Tags.Length | Should -BeExactly $Item.Tags.Length
-                foreach ($tag in $Item.Tags)
-                {
-                    $actualTag = $actual.Tags | Where-Object { $_ -eq $tag }
-                    $actualTag | Should -Not -BeNull
-                }
-            }
-        }
-
-        function Assert-TodoNotInResults
-        {
-            [CmdletBinding()]
-            param (
-                [Parameter(Mandatory)]
-                [Todo[]] $Results,
-                
-                [Parameter(ValueFromPipeline)]
-                [Todo] $Item
-            )
-
-            process
-            {
-                $exists = $false
-                $actual = $results | Where-Object Description -eq $Item.Description
-                if ($null -ne $actual -and $Item.Tags.Length -eq $actual.Tags.Length)
-                {
-                    foreach ($tag in $Item.Tags)
-                    {
-                        $actualTag = $actual.Tags | Where-Object { $_ -eq $tag }
-                        if ($null -eq $actualTag)
-                        {
-                            $exists = $true
-                        }
-                    }
-                }
-                $exists | Should -BeFalse
-            }
-        }
-
-        function Assert-TagsMatch
-        {
-            param (
-                [Parameter(Mandatory)]
-                [string[]] $Expected,
-
-                [Parameter(Mandatory)]
-                [string[]] $Actual
-            )
-
-            $Actual.Length | Should -BeExactly $Expected.Length
-            for ($i = 0; $i -lt $Actual.Length; $i += 1)
-            {
-                $Actual[$i] | Should -BeExactly $Expected[$i]
-            }
-        }
-
-        function Assert-ItemMatches
-        {
-            param (
-                [Parameter(Mandatory, ValueFromPipeline)]
-                [Todo] $Item,
-
-                [int] $Number,
-
-                [string] $Description,
-
-                [string[]] $Tags
-            )
-
-            process
-            {
-                if ($PSCmdlet.MyInvocation.BoundParameters.ContainsKey('Number'))
-                {
-                    $Item.Number | Should -BeExactly $Number
-                }
-                if ($PSCmdlet.MyInvocation.BoundParameters.ContainsKey('Description'))
-                {
-                    $Item.Description | Should -BeExactly $Description
-                }
-                if ($PSCmdlet.MyInvocation.BoundParameters.ContainsKey('Tags'))
-                {
-                    Assert-TagsMatch -Expected $Tags -Actual $Item.Tags
-                }
-            }
-        }
-
         BeforeEach {
             [InMemoryRepository]::Reset()
         }
 
         Context 'Get-Todo returns items from New-Todo' {
+            # Arrange
             New-TodoList -Name 'Test'
             $item1 = New-Todo -ListName 'Test' -Description 'Test1' -Tag 'foo','bar' -PassThru
             $item2 = New-Todo -ListName 'Test' -Description 'Test2' -Tag 'foo','bat' -PassThru
             $item3 = New-Todo -ListName 'Test' -Description 'Test3' -Tag 'bar','bat' -PassThru
 
+            # Act
             $results = @(Get-Todo -ListName 'Test')
 
+            # Assert
             It 'should return the correct number of todos' {
                 $results.Length | Should -BeExactly 3
             }
@@ -1594,42 +1499,43 @@ InModuleScope PoshTodo {
         }
 
         Context 'Get-Todo returns items updated from Set-Todo' {
+            # Arrange
             New-TodoList -Name 'Test'
             $item1 = New-Todo -ListName 'Test' -Description 'Test1' -Tag 'foo','bar' -PassThru
             $item2 = New-Todo -ListName 'Test' -Description 'Test2' -Tag 'foo','bat' -PassThru
             $item3 = New-Todo -ListName 'Test' -Description 'Test3' -Tag 'bar','bat' -PassThru
 
+            # Act
             $item1 | Set-Todo -Description 'Foobar' -Tag 'bat','baz'
-
             $results = @(Get-Todo -ListName 'Test')
 
+            # Assert
             It 'should return the correct number of todos' {
                 $results.Length | Should -BeExactly 3
             }
-
             It 'should return the updated description' {
-                $results[0] | Assert-ItemMatches -Description 'Foobar'
+                $item1,$results[0] | Assert-ItemMatches -Description 'Foobar'
             }
-
             It 'should return the updated tags' {
-                $results[0] | Assert-ItemMatches -Tags 'bat','baz'
+                $item1,$results[0] | Assert-ItemMatches -Tags 'bat','baz'
             }
-
-            It 'does not affect item reference updated via -Description, -Tag' {
-                $item1 | Assert-ItemMatches -Description 'Test1' -Tags 'foo','bar'
+            It 'updates item reference' {
+                $item1 | Assert-ItemMatches -Description 'Foobar' -Tags 'bat','baz'
             }
         }
 
         Context 'Get-Todo does not return deleted items' {
+            # Arrange
             New-TodoList -Name 'Test'
             $item1 = New-Todo -ListName 'Test' -Description 'Test1' -Tag 'foo','bar' -PassThru
             $item2 = New-Todo -ListName 'Test' -Description 'Test2' -Tag 'foo','bat' -PassThru
             $item3 = New-Todo -ListName 'Test' -Description 'Test3' -Tag 'bar','bat' -PassThru
 
+            # Act
             $item1 | Remove-Todo
-
             $results = @(Get-Todo -ListName 'Test')
 
+            # Assert
             It 'should return the correct number of todos' {
                 $results.Length | Should -BeExactly 2
             }
@@ -1639,19 +1545,21 @@ InModuleScope PoshTodo {
         }
 
         Context 'Set-Todo updates by Number' {
+            # Arrange
             New-TodoList -Name 'Test'
             $item1 = New-Todo -ListName 'Test' -Description 'Test1' -Tag 'foo','bar' -PassThru
             $item2 = New-Todo -ListName 'Test' -Description 'Test2' -Tag 'foo','bat' -PassThru
             $item3 = New-Todo -ListName 'Test' -Description 'Test3' -Tag 'bar','bat' -PassThru
 
+            # Act
             $item3.Description = 'Barfoo'
             $item3.Tags = @('blech','bam','boo')
             $item3 | Set-Todo
-
             $results = @(Get-Todo -ListName 'Test')
 
+            # Assert
             It 'should update the todo with matching Number' {
-                $results[2] | Assert-ItemMatches -Description 'Barfoo' -Tags 'blech','bam','boo'
+                $item3,$results[2] | Assert-ItemMatches -Description 'Barfoo' -Tags 'blech','bam','boo'
             }
         }
 
@@ -1679,6 +1587,34 @@ InModuleScope PoshTodo {
             It 'should leave the list reference unaffected' {
                 $before.Length | Should -BeExactly 3
                 $item1 | Assert-TodoInResults -Results $before
+            }
+        }
+
+        Context 'Task-related functions correctly update via pipeline' {
+            # Arrange
+            New-TodoList -Name 'Test'
+            $item1 = New-Todo -ListName 'Test' -Description 'Foo bar 1' -Tag 'Baz' -PassThru
+            $item2 = New-Todo -ListName 'Test' -Description 'Foo bar 2' -Tag 'Bat' -PassThru
+            $item3 = New-Todo -ListName 'Test' -Description 'Foo bar 3' -Tag 'Ban' -PassThru
+
+            # Act
+            $item1 | Start-Todo
+            $item2 | Complete-Todo
+            $item3 | Reset-Todo
+            $results = @(Get-Todo -ListName 'Test')
+
+            # Assert
+            It 'should have started the first todo' {
+                $item1 | Assert-ItemMatches -Status 'IN PROGRESS'
+                $results[0] | Assert-ItemMatches -Status 'IN PROGRESS'
+            }
+            It 'should have completed the second todo' {
+                $item2 | Assert-ItemMatches -Status 'COMPLETE'
+                $results[1] | Assert-ItemMatches -Status 'COMPLETE'
+            }
+            It 'should have reset the third todo' {
+                $item3 | Assert-ItemMatches -Status 'TODO'
+                $results[2] | Assert-ItemMatches -Status 'TODO'
             }
         }
     }

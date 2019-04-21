@@ -837,10 +837,18 @@ function Set-Todo
         if ($null -ne $matchingItem -and $PSCmdlet.MyInvocation.BoundParameters.ContainsKey('Tag'))
         {
             $matchingItem.Tags = $Tag
+            if ($Item)
+            {
+                $Item.Tags = $Tag.Clone()
+            }
         }
         if ($null -ne $matchingItem -and $PSCmdlet.MyInvocation.BoundParameters.ContainsKey('Description'))
         {
             $matchingItem.Description = $Description
+            if ($Item)
+            {
+                $Item.Description = $Description
+            }
         }
 
         if ($List -and $null -ne $matchingItem)
@@ -976,15 +984,40 @@ function Start-Todo
         {
             $nameArr = @($ListName)
             $List = GetListsByName($nameArr)
-            $Item = $List.GetItem($Number)
+            $matchingItem = $List.GetItem($Number)
         }
         elseif ($PSCmdlet.ParameterSetName -eq 'byList')
         {
-            $Item = $List.GetItem($Number)
+            $matchingItem = $List.GetItem($Number)
+        }
+        elseif ($PSCmdlet.ParameterSetName -eq 'byItem')
+        {
+            $List = GetLists | Where-Object Name -eq $Item.ParentListName | Select-Object -First 1
+            if ($List)
+            {
+                $matchingItem = $List.GetItem($Item.Number)
+                if ($null -eq $matchingItem)
+                {
+                    Write-Warning "Could not find todo number $($Item.Number) in list '$($List.Name)'; changes will not be persisted"
+                }
+            }
+            else
+            {
+                Write-Warning "Could not find list matching todo item's list name '$($List.Name)'; changes will not be persisted"
+                $matchingItem = $Item
+            }
         }
 
-        $Item.Status = 'IN PROGRESS'
-        UpdateList($List)
+        $matchingItem.Status = 'IN PROGRESS'
+        if ($Item)
+        {
+            $Item.Status = 'IN PROGRESS'
+        }
+        if ($List -and $null -ne $matchingItem)
+        {
+            $List.SetItem($matchingItem)
+            UpdateList($List)
+        }
     }
 }
 
@@ -1035,15 +1068,40 @@ function Complete-Todo
         {
             $nameArr = @($ListName)
             $List = GetListsByName($nameArr)
-            $Item = $List.GetItem($Number)
+            $matchingItem = $List.GetItem($Number)
         }
         elseif ($PSCmdlet.ParameterSetName -eq 'byList')
         {
-            $Item = $List.GetItem($Number)
+            $matchingItem = $List.GetItem($Number)
+        }
+        elseif ($PSCmdlet.ParameterSetName -eq 'byItem')
+        {
+            $List = GetLists | Where-Object Name -eq $Item.ParentListName | Select-Object -First 1
+            if ($List)
+            {
+                $matchingItem = $List.GetItem($Item.Number)
+                if ($null -eq $matchingItem)
+                {
+                    Write-Warning "Could not find todo number $($Item.Number) in list '$($List.Name)'; changes will not be persisted"
+                }
+            }
+            else
+            {
+                Write-Warning "Could not find list matching todo item's list name '$($List.Name)'; changes will not be persisted"
+                $matchingItem = $Item
+            }
         }
 
-        $Item.Status = 'COMPLETE'
-        Set-Todo -Item $Item
+        $matchingItem.Status = 'COMPLETE'
+        if ($Item)
+        {
+            $Item.Status = 'COMPLETE'
+        }
+        if ($List -and $null -ne $matchingItem)
+        {
+            $List.SetItem($matchingItem)
+            UpdateList($List)
+        }
     }
 }
 
@@ -1094,15 +1152,40 @@ function Reset-Todo
         {
             $nameArr = @($ListName)
             $List = GetListsByName($nameArr)
-            $Item = $List.GetItem($Number)
+            $matchingItem = $List.GetItem($Number)
         }
         elseif ($PSCmdlet.ParameterSetName -eq 'byList')
         {
-            $Item = $List.GetItem($Number)
+            $matchingItem = $List.GetItem($Number)
+        }
+        elseif ($PSCmdlet.ParameterSetName -eq 'byItem')
+        {
+            $List = GetLists | Where-Object Name -eq $Item.ParentListName | Select-Object -First 1
+            if ($List)
+            {
+                $matchingItem = $List.GetItem($Item.Number)
+                if ($null -eq $matchingItem)
+                {
+                    Write-Warning "Could not find todo number $($Item.Number) in list '$($List.Name)'; changes will not be persisted"
+                }
+            }
+            else
+            {
+                Write-Warning "Could not find list matching todo item's list name '$($List.Name)'; changes will not be persisted"
+                $matchingItem = $Item
+            }
         }
 
-        $Item.Status = 'TODO'
-        Set-Todo -Item $Item
+        $matchingItem.Status = 'TODO'
+        if ($Item)
+        {
+            $Item.Status = 'TODO'
+        }
+        if ($List -and $null -ne $matchingItem)
+        {
+            $List.SetItem($matchingItem)
+            UpdateList($List)
+        }
     }
 }
 
