@@ -153,7 +153,7 @@ function Get-Children
 }
 
 # Uses robocopy to delete long file paths that posh/explorer can't
-Function Remove-LongFilePath
+function Remove-LongFilePath
 {
     [CmdletBinding()]
     param (
@@ -209,7 +209,7 @@ Function Remove-LongFilePath
 }
 
 # Converts a given file to a given encoding.
-Function ConvertTo-Encoding
+function ConvertTo-Encoding
 {
     [CmdletBinding()]
     param (
@@ -239,7 +239,7 @@ Function ConvertTo-Encoding
 }
 
 # Gets the size of alls items for each child of the given directory.
-Function Get-ChildSizes
+function Get-ChildSizes
 {
     [CmdletBinding()]
     param (
@@ -412,7 +412,7 @@ function Get-FolderSizeListing($path=".")
 ##############################
 
 # Adds a running index to a piped-in collection
-Function Add-Index
+function Add-Index
 {
     [CmdletBinding()]
     param (
@@ -435,7 +435,7 @@ Function Add-Index
 # Creates an instance of an object given the generic type name. The type name
 # SHOULD NOT include the marker for number of arguments (e.g. you should use
 # 'System.Collections.Generic.List', not 'System.Collections.Generic.List`1').
-Function New-GenericObject
+function New-GenericObject
 {
     [CmdletBinding()]
     param (
@@ -474,14 +474,14 @@ Function New-GenericObject
 
 # Changes the foreground color of the terminal prompt back to the
 # default (in this case, white).
-Function Reset-ForegroundColor
+function Reset-ForegroundColor
 {
     [console]::ForegroundColor = 'White'
 }
 
 # From: http://weblogs.asp.net/adweigert/powershell-adding-the-using-statement
 # Allows the robust usage of an IDisposable within a script block.
-Function Invoke-Using {
+function Invoke-Using {
     param (
         [System.IDisposable] $inputObject = $(throw "The parameter -inputObject is required."),
         [ScriptBlock] $scriptBlock = $(throw "The parameter -scriptBlock is required.")
@@ -503,7 +503,7 @@ Function Invoke-Using {
 New-Alias -Name Using-Object -Value Invoke-Using
 
 # Creates a PSObject from the given properties.
-Function New-PSObject
+function New-PSObject
 {
     [CmdletBinding()]
     param (
@@ -518,7 +518,7 @@ Function New-PSObject
 }
 
 # Returns information about the different Powershell Profiles (AllUsersAllHosts, CurrentHostCurrentHost, etc.).
-Function Get-ProfileInfo
+function Get-ProfileInfo
 {
     $ProfileTypes = $Profile | Get-Member | Where-Object MemberType -eq NoteProperty | Select-Object -ExpandProperty Name
     $ProfileTypes | % { @{Name = $_; Path = $Profile.$_; Exists = Test-Path $Profile.$_; } } | New-PSObject
@@ -530,7 +530,7 @@ Function Get-ProfileInfo
 
 New-Alias -Name touch -Value Update-FileTimestampAttribute
 
-Function Edit-String
+function Edit-String
 {
     [CmdletBinding()]
     param (
@@ -552,7 +552,7 @@ Function Edit-String
 
 New-Alias -Name sed -Value Edit-String
 
-Function Find-String
+function Find-String
 {
     [CmdletBinding()]
     param (
@@ -572,7 +572,7 @@ Function Find-String
 New-Alias -Name grep -Value Find-String
 
 # Basically an alias for `measure | select Count`
-Function count
+function count
 {
     [CmdletBinding()]
     param (
@@ -584,7 +584,7 @@ Function count
 }
 
 # A poor man's `tee`.
-Function Out-ToFile ([string] $file, [string[]] $lines=$null, [switch] $Append)
+function Out-ToFile ([string] $file, [string[]] $lines=$null, [switch] $Append)
 {
     begin
     {
@@ -624,7 +624,7 @@ New-Alias -Name Redirect-ToFile -Value Out-ToFile
 ##############################
 
 # Tests whether the given path represents a Git repo.
-Function Test-GitRepo
+function Test-GitRepo
 {
     [CmdletBinding()]
     param (
@@ -657,7 +657,7 @@ Function Test-GitRepo
 
 # Gets the list of Git stashes in the given repo(s). Mainly used for keeping
 # track of/managing stashes across different clones of the same repo.
-Function Get-GitStashes
+function Get-GitStashes
 {
     [CmdletBinding()]
     param (
@@ -741,7 +741,7 @@ Function Get-GitStashes
 
 New-Alias -Name List-GitStashes -Value Get-GitStashes
 
-Function Remove-AllOtherLocalBranches
+function Remove-AllOtherLocalBranches
 {
     [CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='High')]
     param (
@@ -775,7 +775,7 @@ Function Remove-AllOtherLocalBranches
 
 # Removes branches in the current Git repository that track a no-
 # longer-existing remote branch.
-Function Remove-OrphanedLocalBranches
+function Remove-OrphanedLocalBranches
 {
     [CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='High')]
     param (
@@ -832,7 +832,7 @@ Function Remove-OrphanedLocalBranches
     - TODO: Exit if git errors out
         - sub-TODO: Make it amenable to ErrorAction
 #>
-Function Invoke-GitBranch
+function Invoke-GitBranch
 {
     [CmdletBinding(SupportsShouldProcess, ConfirmImpact='Low')]
     param (
@@ -929,7 +929,7 @@ function Remove-UntrackedFiles
 # Assorted workflow utilities
 ##################################
 
-Function Open-InChrome
+function Open-InChrome
 {
     [CmdletBinding()]
     param (
@@ -1011,31 +1011,29 @@ New-Alias -Name "Compile-PlantUmlDiagram" -Value "New-PlantUmlDiagram"
 Set-Alias vim "C:\Program Files (x86)\Vim\vim80\vim.exe"
 
 # To edit the Powershell Profile
-Function Edit-Profile
+function Edit-Profile
 {
     vim $profile.CurrentUserCurrentHost
 }
 
 # To edit Vim settings
-Function Edit-Vimrc
+function Edit-Vimrc
 {
     vim $HOME\_vimrc
 }
 
 # To edit the AutoHotkey profile
-Function Edit-AutoHotKey
+function Edit-AutoHotKey
 {
     vim $HOME\profile.ahk
 }
 
-Function Edit-Todo
+function Edit-Todo
 {
     vim $HOME\todo.txt
 }
 
-Function Edit-HostsFile
+function Edit-HostsFile
 {
     vim C:\Windows\System32\drivers\etc\hosts
 }
-
-New-Alias -Name todo -Value Edit-Todo
