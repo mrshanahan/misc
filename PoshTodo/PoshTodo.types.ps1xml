@@ -1,0 +1,53 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<Types>
+  <Type>
+    <Name>TodoList</Name>
+    <Members>
+      <MemberSet>
+        <Name>PSStandardMembers</Name>
+        <Members>
+          <PropertySet>
+            <Name>DefaultDisplayPropertySet</Name>
+            <ReferencedProperties>
+              <Name>Name</Name>
+              <Name>Description</Name>
+              <!--<Name>Metadata</Name>-->
+            </ReferencedProperties>
+          </PropertySet>
+        </Members>
+      </MemberSet>
+      <ScriptProperty>
+        <Name>Todos</Name>
+        <GetScriptBlock>@($this.Items | ForEach-Object Description)</GetScriptBlock>
+      </ScriptProperty>
+      <ScriptProperty>
+        <Name>Count</Name>
+        <GetScriptBlock>$this.Items.Count</GetScriptBlock>
+      </ScriptProperty>
+    </Members>
+  </Type>
+
+  <Type>
+    <Name>Todo</Name>
+    <Members>
+      <MemberSet>
+        <Name>PSStandardMembers</Name>
+        <Members>
+          <PropertySet>
+            <Name>DefaultDisplayPropertySet</Name>
+            <ReferencedProperties>
+              <Name>Number</Name>
+              <Name>Description</Name>
+              <Name>Status</Name>
+              <Name>Tags</Name>
+            </ReferencedProperties>
+          </PropertySet>
+        </Members>
+      </MemberSet>
+      <!--<ScriptProperty>
+        <Name>NumberOfItems</Name>
+        <GetScriptBlock>$this.Items.Count</GetScriptBlock>
+      </ScriptProperty>-->
+    </Members>
+  </Type>
+</Types>
