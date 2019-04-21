@@ -54,7 +54,7 @@ Function Get-RootData
         }
 
         $rootName = (Split-Path -Leaf $rootPath)
-        $solutionMapFolder = Join-Path ([System.IO.Path]::GetTempPath()) 'SolutionMaps'
+        $solutionMapFolder = Join-Path $env:HOME '.solutionmaps'
         if (-not (Test-Path $solutionMapFolder))
         {
             Write-Verbose "Creating solution map folder: $solutionMapFolder"
@@ -151,7 +151,7 @@ Function Get-GitRoot
     }
 }
 
-Function Find-SolutionsWithProject()
+Function Find-SolutionsWithProject
 {
     [CmdletBinding()]
     param (
