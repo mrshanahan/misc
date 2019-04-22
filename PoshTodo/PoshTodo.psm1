@@ -672,6 +672,10 @@ function New-Todo
     .PARAMETER List
         List object whose todo items should be retrieved.
 
+    .PARAMETER Description
+        Filter on description of the todo items to return. Uses the same
+        syntax as the -Like operator on strings.
+
     .PARAMETER Number
         One-based index of the todo item to be retrieved. No error will
         occur if no such index exists.
@@ -695,8 +699,13 @@ function Get-Todo
         [Parameter(ParameterSetName='byList', ValueFromPipeline)]
         [TodoList] $List,
 
+        [Parameter(Position=0)]
+        [string] $Description,
+
+        [Parameter(Position=1)]
         [Nullable[int]] $Number,
 
+        [Parameter(Position=2)]
         [string[]] $Tag
     )
 
@@ -728,10 +737,16 @@ function Get-Todo
         }
 
         [Todo[]] $clonedItems = @($items | % { [Todo]::new($_) })
+
         if ($Tag)
         {
             $tagHash = [HashSet[string]]::new($Tag)
-            $clonedItems | Where-Object { $tagHash.Overlaps($_.Tags) }
+            $clonedItems = $clonedItems | Where-Object { $tagHash.Overlaps($_.Tags) }
+        }
+
+        if ($Description)
+        {
+            $clonedItems | Where-Object Description -like $Description
         }
         else
         {

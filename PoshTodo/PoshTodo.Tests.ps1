@@ -556,6 +556,30 @@ InModuleScope PoshTodo {
                 $items.Count | Should -BeExactly 0
             }
 
+            It 'returns todos matching description filters' {
+                # Act
+                [List[Todo]] $items = Get-Todo -ListName 'Default' -Description '*3'
+
+                # Assert
+                $items.Count | Should -BeExactly 1
+            }
+
+            It 'returns no todos by description if it matches none' {
+                # Act
+                [List[Todo]] $items = Get-Todo -ListName 'Default' -Description '*Foo*'
+
+                # Assert
+                $items.Count | Should -BeExactly 0
+            }
+
+            It 'returns todos matching description and tag filters' {
+                # Act
+                [List[Todo]] $items = Get-Todo -ListName 'Default' -Description '*3' -Tag 'Baz'
+
+                # Assert
+                $items.Count | Should -BeExactly 1
+            }
+
             It 'returns all items in a list by pipeline' {
                 $list = [TodoList]::new('Default', '')
                 $list.AppendItem([Todo]::new('Test1', @('Foo')))
