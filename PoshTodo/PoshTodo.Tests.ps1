@@ -960,6 +960,177 @@ InModuleScope PoshTodo {
                 Assert-MockCalled UpdateList -Exactly -Times 0 -Scope It
             }
         }
+
+        Context 'Move' {
+            BeforeEach {
+                $list1 = [TodoList]::new('Test', '')
+                $item1 = [Todo]::new('Foo bar 1', @('Baz'))
+                $item2 = [Todo]::new('Foo bar 2', @('Baz'))
+                $item3 = [Todo]::new('Foo bar 3', @('Baz'))
+                $list1.AppendItem($item1)
+                $list1.AppendItem($item2)
+                $list1.AppendItem($item3)
+                Mock UpdateList { }
+                Mock GetLists { $list1 }
+                Mock ListExists { $Name -eq 'Test' }
+            }
+
+            It 'moves item by list name' {
+                # Act
+                Move-Todo -ListName 'Test' -Number 1 -ToNumber 3
+
+                # Assert
+                $list1.GetItem(1) | Assert-ItemMatches -Description 'Foo bar 2'
+                $list1.GetItem(2) | Assert-ItemMatches -Description 'Foo bar 3'
+                $list1.GetItem(3) | Assert-ItemMatches -Description 'Foo bar 1'
+                Assert-MockCalled UpdateList -Exactly -Times 1 -Scope It
+            }
+
+            It 'moves item by list object' {
+                # Act
+                Move-Todo -List $list1 -Number 1 -ToNumber 3
+
+                # Assert
+                $list1.GetItem(1) | Assert-ItemMatches -Description 'Foo bar 2'
+                $list1.GetItem(2) | Assert-ItemMatches -Description 'Foo bar 3'
+                $list1.GetItem(3) | Assert-ItemMatches -Description 'Foo bar 1'
+                Assert-MockCalled UpdateList -Exactly -Times 1 -Scope It
+            }
+
+            It 'moves item by list pipeline' {
+                # Act
+                $list1 | Move-Todo -Number 1 -ToNumber 3
+
+                # Assert
+                $list1.GetItem(1) | Assert-ItemMatches -Description 'Foo bar 2'
+                $list1.GetItem(2) | Assert-ItemMatches -Description 'Foo bar 3'
+                $list1.GetItem(3) | Assert-ItemMatches -Description 'Foo bar 1'
+                Assert-MockCalled UpdateList -Exactly -Times 1 -Scope It
+            }
+
+            It 'moves item by item property' {
+                # Act
+                Move-Todo -Item $item1 -ToNumber 3
+
+                # Assert
+                $list1.GetItem(1) | Assert-ItemMatches -Description 'Foo bar 2'
+                $list1.GetItem(2) | Assert-ItemMatches -Description 'Foo bar 3'
+                $list1.GetItem(3) | Assert-ItemMatches -Description 'Foo bar 1'
+                Assert-MockCalled UpdateList -Exactly -Times 1 -Scope It
+            }
+
+            It 'moves item by item pipeline' {
+                # Act
+                $item1 | Move-Todo -ToNumber 3
+
+                # Assert
+                $list1.GetItem(1) | Assert-ItemMatches -Description 'Foo bar 2'
+                $list1.GetItem(2) | Assert-ItemMatches -Description 'Foo bar 3'
+                $list1.GetItem(3) | Assert-ItemMatches -Description 'Foo bar 1'
+                Assert-MockCalled UpdateList -Exactly -Times 1 -Scope It
+            }
+
+            It 'throws if list name does not exist' {
+                # Act
+                { Move-Todo -ListName 'Boo' -Number 1 -ToNumber 3 } | Should -Throw
+
+                # Assert
+                $list1.GetItem(1) | Assert-ItemMatches -Description 'Foo bar 1'
+                $list1.GetItem(2) | Assert-ItemMatches -Description 'Foo bar 2'
+                $list1.GetItem(3) | Assert-ItemMatches -Description 'Foo bar 3'
+                Assert-MockCalled UpdateList -Exactly -Times 0 -Scope It
+            }
+
+            It 'updates list object but not backing list if list object does not exist' {
+                # Arrange
+                Mock Write-Warning { }
+
+                # Act
+                $fakeList = [TodoList]::new('Test2', '')
+                $fakeList.AppendItem([Todo]::new('Bat baz', @()))
+                $fakeList.AppendItem([Todo]::new('Bat bam', @()))
+                Move-Todo -List $fakeList -Number 1 -ToNumber 2
+
+                # Assert
+                $list1.GetItem(1) | Assert-ItemMatches -Description 'Foo bar 1'
+                $list1.GetItem(2) | Assert-ItemMatches -Description 'Foo bar 2'
+                $list1.GetItem(3) | Assert-ItemMatches -Description 'Foo bar 3'
+                $fakeList.GetItem(1) | Assert-ItemMatches -Description 'Bat bam'
+                $fakeList.GetItem(2) | Assert-ItemMatches -Description 'Bat baz'
+                Assert-MockCalled UpdateList -Exactly -Times 0 -Scope It
+                Assert-MockCalled Write-Warning -Times 1 -Scope It
+            }
+
+            It 'throws if number does not exist' {
+                # Act/Assert
+                { Move-Todo -ListName 'Test' -Number 4 -ToNumber 1 } | Should -Throw
+                Assert-MockCalled UpdateList -Exactly -Times 0 -Scope It
+            }
+
+            It 'throws if item does not exist' {
+                # Arrange
+                $item4 = [Todo]::new('Foo bar 4', @('Baz'))
+
+                # Act/Assert
+                { Move-Todo -Item $item4 -ToNumber 2 } | Should -Throw
+                Assert-MockCalled UpdateList -Exactly -Times 0 -Scope It
+            }
+
+            It 'appends item to end if target number is too large' {
+                # Act
+                $item1 | Move-Todo -ToNumber 10
+
+                # Assert
+                $list1.GetItem(1) | Assert-ItemMatches -Description 'Foo bar 2'
+                $list1.GetItem(2) | Assert-ItemMatches -Description 'Foo bar 3'
+                $list1.GetItem(3) | Assert-ItemMatches -Description 'Foo bar 1'
+                Assert-MockCalled UpdateList -Exactly -Times 1 -Scope It
+            }
+
+            It 'prepends item to start if target number is less than one' {
+                # Act
+                $item3 | Move-Todo -ToNumber -1
+
+                # Assert
+                $list1.GetItem(1) | Assert-ItemMatches -Description 'Foo bar 3'
+                $list1.GetItem(2) | Assert-ItemMatches -Description 'Foo bar 1'
+                $list1.GetItem(3) | Assert-ItemMatches -Description 'Foo bar 2'
+                Assert-MockCalled UpdateList -Exactly -Times 1 -Scope It
+            }
+
+            It 'does nothing if item number and target number are the same' {
+                # Act
+                $item2 | Move-Todo -ToNumber 2
+
+                # Assert
+                $list1.GetItem(1) | Assert-ItemMatches -Description 'Foo bar 1'
+                $list1.GetItem(2) | Assert-ItemMatches -Description 'Foo bar 2'
+                $list1.GetItem(3) | Assert-ItemMatches -Description 'Foo bar 3'
+                Assert-MockCalled UpdateList -Exactly -Times 1 -Scope It
+            }
+
+            It 'inserts item at the correct position' {
+                # Arrange
+                $item4 = [Todo]::new('Foo bar 4', @('Baz'))
+                $item5 = [Todo]::new('Foo bar 5', @('Baz'))
+                $item6 = [Todo]::new('Foo bar 6', @('Baz'))
+                $list1.AppendItem($item4)
+                $list1.AppendItem($item5)
+                $list1.AppendItem($item6)
+
+                # Act
+                $item2 | Move-Todo -ToNumber 5
+
+                # Assert
+                $list1.GetItem(1) | Assert-ItemMatches -Description 'Foo bar 1'
+                $list1.GetItem(2) | Assert-ItemMatches -Description 'Foo bar 3'
+                $list1.GetItem(3) | Assert-ItemMatches -Description 'Foo bar 4'
+                $list1.GetItem(4) | Assert-ItemMatches -Description 'Foo bar 5'
+                $list1.GetItem(5) | Assert-ItemMatches -Description 'Foo bar 2'
+                $list1.GetItem(6) | Assert-ItemMatches -Description 'Foo bar 6'
+                Assert-MockCalled UpdateList -Exactly -Times 1 -Scope It
+            }
+        }
     }
 
     Describe 'Todo Methods' {
@@ -1587,6 +1758,30 @@ InModuleScope PoshTodo {
             It 'should leave the list reference unaffected' {
                 $before.Length | Should -BeExactly 3
                 $item1 | Assert-TodoInResults -Results $before
+            }
+        }
+
+        Context 'Move-Todo operates on original list when filtering by number' {
+            # Arrange
+            New-TodoList -Name 'Test'
+            1..6 | ForEach-Object { New-Todo -ListName 'Test' -Description "Foo bar $_" -Tag 'Baz' }
+
+            # Act
+            $before = @(Get-Todo -ListName 'Test')
+            $before | Sort-Object Number -Descending | Where-Object Number -le 3 | Move-Todo -ToNumber 10
+            $after = @(Get-Todo -ListName 'Test')
+
+            # Assert
+            It 'should return the correct number of todos' {
+                $after.Length | Should -BeExactly 6
+            }
+            It 'should return the todos in the correct order' {
+                $after[0].Description | Should -BeExactly 'Foo bar 4'
+                $after[1].Description | Should -BeExactly 'Foo bar 5'
+                $after[2].Description | Should -BeExactly 'Foo bar 6'
+                $after[3].Description | Should -BeExactly 'Foo bar 3'
+                $after[4].Description | Should -BeExactly 'Foo bar 2'
+                $after[5].Description | Should -BeExactly 'Foo bar 1'
             }
         }
 
