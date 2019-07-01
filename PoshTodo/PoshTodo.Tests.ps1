@@ -1661,8 +1661,18 @@ InModuleScope PoshTodo {
     }
 
     Describe 'Integration' {
+        BeforeAll {
+            $env:POSHTODO_INMEMORYREPO = 'true'
+            # $env:POSHTODO_INMEMORYREPO = 'false'
+            # $env:POSHTODO_TODOLISTFILE = Join-Path $PSScriptRoot 'testtodolist'
+            # if (Test-Path $env:POSHTODO_TODOLISTFILE)
+            # {
+            #     Remove-Item $env:POSHTODO_TODOLISTFILE
+            # }
+        }
+
         BeforeEach {
-            [InMemoryRepository]::Reset()
+            Get-TodoList | Remove-TodoList
         }
 
         Context 'Get-Todo returns items from New-Todo' {

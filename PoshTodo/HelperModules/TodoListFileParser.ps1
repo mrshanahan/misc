@@ -2,9 +2,13 @@ using namespace System.Text.RegularExpressions
 
 function ParseFile([string] $Path)
 {
+    if (-not (Test-Path $Path))
+    {
+        New-Item $Path -Force
+    }
     $tokens = TokenizeContents($Path)
     $lists = ParseTokens($tokens)
-    $lists
+    return $lists
 }
 
 function SerializeLists($Lists)
@@ -17,17 +21,16 @@ function SerializeLists($Lists)
         foreach ($item in $list.Items)
         {
             $descriptionLine = "    - description: $($item.Description)"
+            $tagsLine =        "      tags: $([string]::Join(',', $item.Tags))"
+            $statusLine =      "      status: $($item.Status)"
+
             $lines += $descriptionLine
-
-            $tagsLine = "      tags: $([string]::Join(',', $item.Tags))"
             $lines += $tagsLine
-
-            $statusLine = "      status: $($item.Status)"
             $lines += $statusLine
         }
     }
 
-    $lines
+    return $lines
 }
 
 $TODOLIST_START = [Regex]::new('^([^:\s]+):\s*(.*)$')

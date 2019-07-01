@@ -10,15 +10,19 @@ function ParseBoolValue([string] $Value)
     }
 }
 
-$INMEMORYREPO = ParseBoolValue($env:POSHTODO_INMEMORYREPO)
+function GetInstance
+{
+    $INMEMORYREPO = ParseBoolValue($env:POSHTODO_INMEMORYREPO)
+    if ($INMEMORYREPO)
+    {
+        $instance = [InMemoryTodoListRepository]::GetInstance()
+    }
+    else
+    {
+        $instance = [FileTodoListRepository]::new()
+    }
 
-if ($INMEMORYREPO)
-{
-    $INSTANCE = [InMemoryTodoListRepository]::GetInstance()
-}
-else
-{
-    $INSTANCE = [FileTodoListRepository]::new()
+    return $instance
 }
 
 <#
@@ -31,7 +35,7 @@ else
 #>
 function GetLists
 {
-    $INSTANCE.GetAll()
+    (GetInstance).GetAll()
 }
 
 <#
@@ -43,7 +47,7 @@ function GetLists
 #>
 function ListExists([string] $Name)
 {
-    $INSTANCE.Exists($Name)
+    (GetInstance).Exists($Name)
 }
 
 <#
@@ -54,7 +58,7 @@ function ListExists([string] $Name)
 #>
 function UpdateList([TodoList] $List)
 {
-    $INSTANCE.Update($List)
+    (GetInstance).Update($List)
 }
 
 <#
@@ -66,7 +70,7 @@ function UpdateList([TodoList] $List)
 #>
 function AddList([TodoList] $List)
 {
-    $INSTANCE.Add($List)
+    (GetInstance).Add($List)
 }
 
 <#
@@ -79,7 +83,7 @@ function AddList([TodoList] $List)
 #>
 function RemoveList([TodoList] $List)
 {
-    $INSTANCE.Remove($List)
+    (GetInstance).Remove($List)
 }
 
 ### Gemeral private functions
