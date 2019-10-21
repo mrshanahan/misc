@@ -2,6 +2,54 @@
 # Filesystem utilities
 ###############################
 
+# Returns better-formatted drive info
+function Get-DriveInfo
+{
+    [CmdletBinding()]
+    param ()
+
+    $drives = [System.IO.DriveInfo]::GetDrives()
+    $drives | Select-Object -Property `
+        Name,
+        DriveType,
+        RootDirectory,
+        VolumeLabel,
+        @{ Name = 'AvailableFreeSpaceGBs'; Expression = { $_.AvailableFreeSpace / 1GB } },
+        @{ Name = 'TotalFreeSpaceGBs'; Expression = { $_.TotalFreeSpace / 1GB } },
+        @{ Name = 'TotalSizeGBs'; Expression = { $_.TotalSize / 1GB } },
+        @{ Name = 'ProportionSpaceFree'; Expression = { $_.AvailableFreeSpace / $_.TotalSize } }
+}
+
+# Returns most commonly-used system info in simple format
+function Get-SystemInfo
+{
+    [CmdletBinding()]
+    param ()
+
+    $refComputer = Get-CimInstance Win32_OperatingSystem
+    $refProcessor = Get-CimInstance Win32_Processor
+    $properties = [ordered] @{
+        ComputerName = $env:COMPUTERNAME
+        OSVersion = $refComputer.Version
+        OSReleaseID = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\').ReleaseID
+        AvailableMemoryGBs = [Math]::Round($refComputer.FreePhysicalMemory / 1MB, 2)
+        TotalMemoryGBs = [Math]::Round($refComputer.TotalVisibleMemorySize / 1MB, 2)
+        PercentMemoryFree = ([Math]::Round($refComputer.FreePhysicalMemory / $refComputer.TotalVisibleMemorySize, 2)) * 100
+        NumberOfProcessors = $env:NUMBER_OF_PROCESSORS
+        PercentCpuUtilized = $refProcessor.LoadPercentage
+    }
+
+    foreach ($drive in ([System.IO.DriveInfo]::GetDrives()))
+    {
+        $name = $drive.Name.Replace(':\', '')
+        $properties["${name}_TotalFreeSpaceGBs"] = [Math]::Round($drive.TotalFreeSpace / 1GB, 2)
+        $properties["${name}_TotalSizeGBs"] = [Math]::Round($drive.TotalSize / 1GB, 2)
+        $properties["${name}_PercentSpaceFree"] = ([Math]::Round($drive.TotalFreeSpace / $drive.TotalSize, 2)) * 100
+    }
+
+    New-Object PSObject -Property $properties
+}
+
 # Updates the relevant timestamp for the given file.
 function Update-FileTimestampAttribute
 {
@@ -102,9 +150,12 @@ function Get-FileListing
         [switch] $NoRecurse
     )
 
-    $FullRoot = Resolve-Path $Root | Select-Object -ExpandProperty Path
+    # Using `Get-Item | Select-Object FullName` here instead of `Resolve-Path` b/c
+    # Resolve-Path includes the entire PSDrive identifier if it's not on a standard
+    # file system path (e.g. SMB share, registry, etc.)
+    $FullRoot = Get-Item $Root | Select-Object -ExpandProperty FullName
     $FullRoot = $FullRoot.TrimEnd('\') + '\'
-    $FullRootPattern = "^$($FullRoot -replace '\\', '\\')"
+    $FullRootPattern = "^$([Regex]::Escape($FullRoot))"
 
     Get-ChildItem -Recurse:(!$NoRecurse) -Path $FullRoot -File:(!$IncludeDirectories) |
         Select-Object -ExpandProperty FullName |
@@ -249,11 +300,14 @@ function Get-ChildSizes
         [switch] $IncludeFiles
     )
 
-    If (-Not (Get-Item -Force $Directory) -is [System.IO.DirectoryInfo])
+    process
     {
-        throw [System.ArgumentException] "$Directory is not a directory or does not exist.`n"
+        If (-Not (Get-Item -Force $Directory) -is [System.IO.DirectoryInfo])
+        {
+            throw [System.ArgumentException] "$Directory is not a directory or does not exist.`n"
+        }
+        Get-ChildItem -Force -Path $Directory -Directory:(!$IncludeFiles) | Get-FolderSize
     }
-    Get-ChildItem -Force -Path $Directory -Directory:(!$IncludeFiles) | Get-FolderSize
 }
 
 # Gets the size of a given folder. Did not write it myself,
@@ -262,9 +316,9 @@ function Get-FolderSize
 {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory=$true,ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true)]
+        [Parameter(Mandatory, ValueFromPipeline, ValueFromPipelineByPropertyName)]
         [Alias('FullName')]
-        [string[]] $Path,
+        [string] $Path,
 
         [int] $Precision = 4,
 
@@ -332,62 +386,66 @@ function Get-FolderSize
             }
         }
     }
+
     process
     {
-        foreach ($p in $Path)
+        $p = (Resolve-Path $Path).Path
+        Write-Verbose -Message "Processing path '$p'. $([datetime]::Now)."
+        if (-not (Test-Path -Path $p -PathType Container))
         {
-            $p = (Resolve-Path $Path).Path
-            Write-Verbose -Message "Processing path '$p'. $([datetime]::Now)."
-            if (-not (Test-Path -Path $p -PathType Container))
-            {
-                Write-Warning -Message "$p does not exist or is a file and not a directory. Skipping."
-                continue
-            }
-            if ($RoboOnly)
+            Write-Warning -Message "$p does not exist or is a file and not a directory. Skipping."
+            return
+        }
+        if ($RoboOnly)
+        {
+            Get-RoboFolderSizeInternal -Path $p -Precision $Precision
+            return
+        }
+        $ErrorActionPreference = 'Stop'
+        try
+        {
+            $StartFSOTime = [datetime]::Now
+            $TotalBytes = $FSO.GetFolder($p).Size
+            $EndFSOTime = [datetime]::Now
+            if ($TotalBytes -eq $null)
             {
                 Get-RoboFolderSizeInternal -Path $p -Precision $Precision
-                continue
+                return;
             }
-            $ErrorActionPreference = 'Stop'
-            try
-            {
-                $StartFSOTime = [datetime]::Now
-                $TotalBytes = $FSO.GetFolder($p).Size
-                $EndFSOTime = [datetime]::Now
-                if ($TotalBytes -eq $null)
-                {
-                    Get-RoboFolderSizeInternal -Path $p -Precision $Precision
-                    continue
-                }
-            }
-            catch
-            {
-                if ($_.Exception.Message -like '*PERMISSION*DENIED*')
-                {
-                    Write-Verbose "Caught a permission denied. Trying robocopy."
-                    Get-RoboFolderSizeInternal -Path $p -Precision $Precision
-                    continue
-                }
-                Write-Warning -Message "Encountered an error while processing path '$p': $_"
-                continue
-            }
-            $ErrorActionPreference = 'Continue'
-            New-Object PSObject -Property @{
-                Path = $p
-                TotalBytes = [decimal] $TotalBytes
-                TotalMBytes = [math]::Round(([decimal] $TotalBytes / 1MB), $Precision)
-                TotalGBytes = [math]::Round(([decimal] $TotalBytes / 1GB), $Precision)
-                BytesFailed = $null
-                DirCount = $null
-                FileCount = $null
-                DirFailed = $null
-                FileFailed  = $null
-                TimeElapsed = [math]::Round(([decimal] ($EndFSOTime - $StartFSOTime).TotalSeconds), $Precision)
-                StartedTime = $StartFSOTime
-                EndedTime = $EndFSOTime
-            } | Select Path, TotalBytes, TotalMBytes, TotalGBytes, DirCount, FileCount, DirFailed, FileFailed, TimeElapsed, StartedTime, EndedTime
         }
+        catch
+        {
+            if ($_.Exception.Message -like '*PERMISSION*DENIED*')
+            {
+                Write-Verbose "Caught a permission denied. Trying robocopy."
+                Get-RoboFolderSizeInternal -Path $p -Precision $Precision
+                return
+            }
+            else
+            {
+                Write-Warning -Message "Encountered an error while processing path '$p': $_"
+                return
+            }
+            
+        }
+
+        $ErrorActionPreference = 'Continue'
+        New-Object PSObject -Property @{
+            Path = $p
+            TotalBytes = [decimal] $TotalBytes
+            TotalMBytes = [math]::Round(([decimal] $TotalBytes / 1MB), $Precision)
+            TotalGBytes = [math]::Round(([decimal] $TotalBytes / 1GB), $Precision)
+            BytesFailed = $null
+            DirCount = $null
+            FileCount = $null
+            DirFailed = $null
+            FileFailed  = $null
+            TimeElapsed = [math]::Round(([decimal] ($EndFSOTime - $StartFSOTime).TotalSeconds), $Precision)
+            StartedTime = $StartFSOTime
+            EndedTime = $EndFSOTime
+        } | Select-Object Path, TotalBytes, TotalMBytes, TotalGBytes, DirCount, FileCount, DirFailed, FileFailed, TimeElapsed, StartedTime, EndedTime
     }
+
     end
     {
         [void][System.Runtime.Interopservices.Marshal]::ReleaseComObject($FSO)
