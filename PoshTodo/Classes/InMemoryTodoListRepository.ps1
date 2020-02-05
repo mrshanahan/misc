@@ -12,10 +12,11 @@ class InMemoryTodoListRepository
 
     hidden [Dictionary[string, TodoList]] $_lists
 
+    hidden [string] $_working = $null
+
     hidden InMemoryTodoListRepository() {
         $this._lists = New-Object 'Dictionary[string, TodoList]'
-        $defaultList = [TodoList]::new('Default', 'Default todo list')
-        $this._lists.Add($defaultList.Name, $defaultList)
+        $this._working = $null
     }
 
     [void] Add([TodoList] $List) {
@@ -44,9 +45,14 @@ class InMemoryTodoListRepository
     }
 
     [void] Remove([TodoList] $List) {
-        if ($List.Name -ne 'Default')
-        {
-            $null = $this._lists.Remove($List.Name)
-        }
+        $null = $this._lists.Remove($List.Name)
+    }
+
+    [void] SetWorking([string] $Name) {
+        $this._working = $Name
+    }
+
+    [string] GetWorking() {
+        return $this._working
     }
 }

@@ -86,7 +86,25 @@ function RemoveList([TodoList] $List)
     (GetInstance).Remove($List)
 }
 
-### Gemeral private functions
+<#
+    EXPECTED BEHAVIOR:
+        - Returns void
+        - _May_ throw if list with name $Name doesn't exist
+        - Does not throw if ListExists($Name) -eq True
+        - Subsequent calls of GetWorkingList will return $Name (until SetWorkingList is called with a different valid argument)
+        - If SetWorkingList throws, the old value will be returned by GetWorkingList
+#>
+function SetWorkingList([string] $Name)
+{
+    (GetInstance).SetWorking($Name)
+}
+
+function GetWorkingListName
+{
+    (GetInstance).GetWorking()
+}
+
+### General private functions
 
 function GetListsByName([string[]] $Name)
 {
@@ -103,6 +121,12 @@ function GetListsByName([string[]] $Name)
     {
         $lists
     }
+}
+
+function GetWorkingList
+{
+    $name = (GetWorkingListName)
+    return GetListsByName(@($name))
 }
 
 Export-ModuleMember -Function 'GetLists', 'ListExists', 'UpdateList', 'AddList', 'RemoveList', 'GetListsByName'

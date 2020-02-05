@@ -34,7 +34,7 @@ function Get-Todo
     [CmdletBinding(DefaultParameterSetName='byListName')]
     param (
         [Parameter(ParameterSetName='byListName')]
-        [string] $ListName = 'Default',
+        [string] $ListName,
 
         [Parameter(ParameterSetName='byList', ValueFromPipeline)]
         [TodoList] $List,
@@ -53,8 +53,15 @@ function Get-Todo
     {
         if (-not $List)
         {
-            $nameArr = @($ListName)
-            $List = GetListsByName($nameArr)
+            if ($PSCmdlet.ParameterSetName -eq 'byListName')
+            {
+                $List = (GetWorkingList)
+            }
+            else
+            {
+                $nameArr = @($ListName)
+                $List = GetListsByName($nameArr)
+            }
         }
 
         [List[Todo]] $items = $List.Items
