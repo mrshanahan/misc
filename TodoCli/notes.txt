@@ -1,0 +1,125 @@
+Environment vars:
+  TODOCLI_LIST_PATH
+      Location of the on-disk list. Defaults to ~/.todocli.
+  TODOCLI_DEFAULT
+      Name of the default list. No default value.
+
+General options:
+  -v|--verbose
+  -r|--format json|csv
+  -h|--help|-?|?
+
+todo
+    alias for `todo show`
+
+todo -h|--help|-?|?
+    shows help
+
+TODO LISTS
+
+todo lists [<filter>]
+    shows all lists, filtered by <filter> if given.
+
+TODO LISTS NEW
+
+todo lists new <name> [[-d|--description] <desc>]
+todo lists new [-n|--name <name>] [-d|--description <desc>]
+    creates a new list with name <name> and description <desc>
+
+todo lists new [-d|--description <desc>]
+    creates a new list from stdin with input lines in the expected
+    format. Defaults to csv. If json, matches based on top-level
+    property names, i.e.:
+      { "name": "<name>", "description: "<description>", ... }
+    If <desc> is provided, overrides the description with the given
+    description.
+
+TODO LISTS REMOVE
+
+todo lists remove|rm <filter> [-p|--prompt]
+    removes todo lists with names matching the given filter.
+    Prompts for each remove if -p is given.
+
+todo lists remove|rm -n|--name <name> [-p|--prompt]
+    removes a todo list exactly matching the given name. Errors
+    if no such list exists. Prompts for each remove if -p is given.
+
+todo lists remove|rm
+    removes todo lists from stdin with input lines in the expected
+    format. Defaults to csv. If json, matches based on top-level
+    property names, i.e.:
+      { "name": "<name>", ... }
+
+TODO LISTS MOVE
+
+todo lists move|mv <from-name> <to-name> [-f|--force] [-m|--merge]
+todo lists move|mv [--from <from-name>] [--to <to-name>] [-f|--force] [-m|--merge]
+    renames the todo list specified as <from-name> to the one specified
+    as <to-name>. Throws an error if <from-name> does not exist.
+    Throws an error if <to-name> already exists, unless:
+      1) -m is provided, in which case the todo items of <from> are appended to <to>;
+      2) -f is provided, in which case target list is overwritten.
+
+todo lists move|mv [-f|--force] [-m|--merge]
+    renames the todo lists from stdin with input lines in the expected
+    format. Defaults to csv. If json, matches based on top-level
+    property names, i.e.:
+      { "from": "<from>", "to": "<to>", ... }
+
+TODO LISTS UPDATE
+
+todo lists update|up <name> <desc>
+todo lists update|up <name> [-d|--description <desc>]
+    updates the todo list given by <name> to have the description <desc>.
+    Throws if <name> does not exist.
+
+todo lists update|up
+    updates the todo lists from stdin with input lines in the expected
+    format. Defaults to csv. If json, matches based on top-level
+    property names, i.e.:
+      { "name": "<name>", "description": "<description>", ... }
+
+TODO NEW
+
+todo new
+todo new [-t|--title] <item-title>
+todo new <item-title> [-l|--list <list-name>]
+todo new [-t|--title <item-title>] [-l|--list <list-name>]
+
+TODO REMOVE
+
+todo remove|rm
+todo remove|rm <item-title> [-l|--list <list-name>]
+todo remove|rm [-t|--title <item-title>] [-l|--list <list-name>]
+
+TODO UPDATE
+
+todo update|up
+todo update|up <item-title> <description>
+todo update|up [-t|--title <item-title>] [-d|--description <description>] [-l|--list <list-name>]
+
+TODO MOVE
+
+...
+
+TODO SHOW
+
+todo show
+todo show [-t|--title] <item-title-filter> [-l|--list <list-name>]
+
+TODO FIND
+
+todo find [-t|--title <item-title-filter>] [-l|--list <list-name-filter>] [-d|--description <item-description-filter>]
+
+TODO SET/UNSET
+
+todo set
+todo set|unset default <list-name>
+todo set|unset ignorecase
+
+INTEGRATION EXAMPLES
+
+todo show TestVmIF *Jenkins* | todo rm
+
+todo set default TestVmIF
+todo show
