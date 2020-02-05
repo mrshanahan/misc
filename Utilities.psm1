@@ -978,7 +978,7 @@ function Remove-UntrackedFiles
     {
         foreach ($f in $filesToRemove)
         {
-            Remove-Item -Recurse (Resolve-Path $f) -WhatIf:$WhatIf
+            Remove-Item -Recurse -Force (Resolve-Path $f) -WhatIf:$WhatIf
         }
     }
 }
