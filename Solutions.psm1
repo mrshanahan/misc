@@ -260,7 +260,7 @@ Function Open-Solution
 
         [switch] $TakeFirst,
 
-        [VisualStudioVersion] $With = [VisualStudioVersion]::VS2015
+        [VisualStudioVersion] $With = [VisualStudioVersion]::VS2017
     )
 
     if ([String]::IsNullOrEmpty($SolutionPattern))
