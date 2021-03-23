@@ -582,6 +582,33 @@ function Get-ProfileInfo
     $ProfileTypes | % { @{Name = $_; Path = $Profile.$_; Exists = Test-Path $Profile.$_; } } | New-PSObject
 }
 
+# Simple alias for resolving DNS names
+function dns
+{
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, Position=0)]
+        [string] $Name,
+
+        [ValidateNotNullOrEmpty]
+        [string] $Server,
+
+        [switch] $Reverse
+    )
+
+    $params = @{ Name = $Name }
+    if ($Server)
+    {
+        $params.Server = $Server
+    }
+    if ($Reverse)
+    {
+        $params.Type = 'PTR'
+    }
+
+    Resolve-DnsName @params
+}
+
 ##############################
 # Unix standins/replacements
 ##############################
@@ -676,6 +703,20 @@ function Out-ToFile ([string] $file, [string[]] $lines=$null, [switch] $Append)
 }
 
 New-Alias -Name Redirect-ToFile -Value Out-ToFile
+
+function Get-InstalledProgram
+{
+    [CmdletBinding()]
+    param (
+        [switch] $Detailed
+    )
+
+    $properties = if ($Detailed) { @('*') } else { @('DisplayName', 'DisplayVersion', 'Publisher', 'NoModify', 'NoRepair', 'UninstallString') }
+
+    Get-ChildItem HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\ |
+        Get-ItemProperty |
+        Select-Object -Property $properties
+}
 
 ##############################
 # Git utilities
@@ -983,6 +1024,19 @@ function Remove-UntrackedFiles
     }
 }
 
+# These two are posh-git specific - they disable & enable the post-git
+# prompt on PowerShell, respectively.
+
+Function Disable-PoshGitPrompt
+{
+    $GitPromptSettings.EnablePromptStatus = $false
+}
+
+Function Enable-PoshGitPrompt
+{
+    $GitPromptSettings.EnablePromptStatus = $true
+}
+
 ##################################
 # Assorted workflow utilities
 ##################################
@@ -1066,7 +1120,7 @@ New-Alias -Name "Compile-PlantUmlDiagram" -Value "New-PlantUmlDiagram"
 
 # From: http://www.expatpaul.eu/2014/04/vim-in-powershell/
 
-Set-Alias vim "C:\Program Files (x86)\Vim\vim80\vim.exe"
+Set-Alias vim "C:\tools\neovim\Neovim\bin\nvim.exe"
 
 # To edit the Powershell Profile
 function Edit-Profile
@@ -1094,4 +1148,9 @@ function Edit-Todo
 function Edit-HostsFile
 {
     vim C:\Windows\System32\drivers\etc\hosts
+}
+
+function Edit-TerminalSettings
+{
+    vim "$(Join-Path $env:LOCALAPPDATA 'Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json')"
 }
