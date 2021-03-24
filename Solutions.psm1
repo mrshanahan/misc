@@ -54,7 +54,7 @@ Function Get-RootData
         }
 
         $rootName = (Split-Path -Leaf $rootPath)
-        $solutionMapFolder = Join-Path $env:HOME '.solutionmaps'
+        $solutionMapFolder = Join-Path $env:USERPROFILE '.solutionmaps'
         if (-not (Test-Path $solutionMapFolder))
         {
             Write-Verbose "Creating solution map folder: $solutionMapFolder"
