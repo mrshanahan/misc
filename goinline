@@ -1,0 +1,44 @@
+#!/usr/bin/zsh
+
+import=(fmt)
+stmt=""
+
+i=1
+while [[ $i -le $#argv ]]
+do
+    arg=$argv[$i]
+    if [[ $arg == "-i" ]] then
+        import+=($argv[$i+1])
+        i=$[$i+2]
+    else
+        stmt=$arg
+        i=$[$i+1]
+    fi
+done
+
+imports=""
+for imp in $import
+do
+    imports+="\n    \"$imp\""
+done
+
+contents=$(<<EOF
+package main
+
+import ($imports
+)
+
+func main() {
+    $stmt
+}
+EOF
+)
+
+fname="inline-$(repeat 20 echo -n $[$RANDOM % 10]).go"
+fpath="/tmp/${fname}"
+echo $contents >$fpath
+
+go run $fpath
+goexit=$?
+rm $fpath
+exit $?
