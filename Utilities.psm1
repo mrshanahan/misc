@@ -613,8 +613,6 @@ function dns
 # Unix standins/replacements
 ##############################
 
-New-Alias -Name touch -Value Update-FileTimestampAttribute
-
 function Edit-String
 {
     [CmdletBinding()]
@@ -635,8 +633,6 @@ function Edit-String
     }
 }
 
-New-Alias -Name sed -Value Edit-String
-
 function Find-String
 {
     [CmdletBinding()]
@@ -654,10 +650,8 @@ function Find-String
     }
 }
 
-New-Alias -Name grep -Value Find-String
-
 # Basically an alias for `measure | select Count`
-function count
+function Measure-ObjectCount
 {
     [CmdletBinding()]
     param (
@@ -702,8 +696,6 @@ function Out-ToFile ([string] $file, [string[]] $lines=$null, [switch] $Append)
     }
 }
 
-New-Alias -Name Redirect-ToFile -Value Out-ToFile
-
 function Get-InstalledProgram
 {
     [CmdletBinding()]
@@ -717,6 +709,255 @@ function Get-InstalledProgram
         Get-ItemProperty |
         Select-Object -Property $properties
 }
+
+function Get-FileTimestamp
+{
+    [CmdletBinding()]
+    param (
+        [switch] $UTC,
+
+        [ValidateSet('Day', 'Hour', 'Minute', 'Second', 'Millisecond')]
+        [string] $Resolution = 'Second'
+    )
+
+    $date = Get-Date
+    if ($UTC)
+    {
+        $date = $date.ToUniversalTime()
+    }
+
+    $formats = @{
+        Day         = 'yyyyMMdd'
+        Hour        = 'yyyyMMdd\THH'
+        Minute      = 'yyyyMMdd\THHmm'
+        Second      = 'yyyyMMdd\THHmmss'
+        Millisecond = 'yyyyMMdd\THHmmssfff'
+    }
+
+    $date | Get-Date -Format $formats[$Resolution]
+}
+
+function Invoke-ForEachObject
+{
+
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, Position=0)]
+        [string] $Command,
+
+        [Parameter(Position=1, ValueFromRemainingArguments)]
+        [string[]] $Arguments = @(),
+
+        [Parameter(ValueFromPipeline)]
+        [object] $InputObject
+    )
+
+    process
+    {
+        $inputProcessed = $false
+
+        $processedArguments = New-Object System.Collections.ArrayList
+        foreach ($arg in $Arguments)
+        {
+            if ($arg -match '{}')
+            {
+                $processedArg = $arg -replace '{}', $InputObject
+                $inputProcessed = $true
+            }
+            else
+            {
+                $processedArg = $arg
+            }
+            $null = $processedArguments.Add($processedArg)
+        }
+
+        if ($inputProcessed)
+        {
+            $expr = "${Command} $($processedArguments -join ' ')"
+        }
+        else
+        {
+            $expr = "${Command} $($processedArguments -join ' ') $InputObject"
+        }
+
+        Write-Verbose "Invoking: $expr"
+        Invoke-Expression $expr
+    }
+}
+
+# NB: This is a pretty naive implementation, so it's not going to be anywhere
+# as fast as `cut`, but it doesn't do anything that's particularly slow in PowerShell,
+# so it should be fine for day-to-day.
+function Split-String
+{
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, Position=0)]
+        [string] $Delimiter,
+
+        [Parameter(Mandatory, Position=1)]
+        [string] $Fields,
+
+        [Parameter(ValueFromPipeline)]
+        [string] $InputString
+    )
+
+    begin
+    {
+        if ([string]::IsNullOrEmpty($Delimiter))
+        {
+            throw "Expected valid, non-empty delimeter, instead got: '$Delimiter'"
+        }
+
+        function NewSpec([Nullable[int]] $From, [Nullable[int]] $To)
+        {
+            [PSCustomObject] @{ From = $From; To = $To }
+        }
+
+        function ValidateField([string] $Field)
+        {
+            $i = [int] $Field
+            if ($i -le 0)
+            {
+                throw "Fields are numbered from 1"
+            }
+            $i
+        }
+
+        function ParseFields([string] $Fields)
+        {
+            # We're basically just copying the various `cut` formations:
+            #     num   : /\d+/
+            #     range : <num> '-' <num> | <num> '-' | '-' <num>
+            #     spec  : <num> | <range>
+            #     list  : <spec> (',' <spec>)*
+            # Valid input is: <list>
+
+            $specs = @($Fields -split ',')
+            $parsedSpecs = New-Object System.Collections.ArrayList
+            foreach ($spec in $specs)
+            {
+                if ($spec -match '^(\d+)-(\d+)$')
+                {
+                    $from = ValidateField $Matches[1]
+                    $to = ValidateField $Matches[2]
+                    if ($from -gt $to)
+                    {
+                        throw "Invalid field range: $($Matches[0])"
+                    }
+                    $parsed = NewSpec $from $to
+                }
+                elseif ($spec -match '^(\d+)-$')
+                {
+                    $from = ValidateField $Matches[1]
+                    $parsed = NewSpec $from $null
+                }
+                elseif ($spec -match '^-(\d+)$')
+                {
+                    $to = ValidateField $Matches[1]
+                    $parsed = NewSpec $null $to
+                }
+                elseif ($spec -match '^\d+$')
+                {
+                    $field = ValidateField $Matches[0]
+                    $parsed = NewSpec $field $field
+                }
+                else
+                {
+                    throw "Invalid field specification: $spec"
+                }
+                $null = $parsedSpecs.Add($parsed)
+            }
+
+            return $parsedSpecs
+        }
+
+        $fieldSpecs = ParseFields $Fields
+
+        function InRangeOf([int] $Number, $FieldSpec)
+        {
+            if ($null -eq $FieldSpec.From)
+            {
+                $Number -le $FieldSpec.To
+            }
+            elseif ($null -eq $FieldSpec.To)
+            {
+                $Number -ge $FieldSpec.From
+            }
+            else
+            {
+                $Number -ge $FieldSpec.From -and $Number -le $FieldSpec.To
+            }
+        }
+
+        $lastHighestLength = 0
+        $matchingIndices = New-Object System.Collections.ArrayList
+    }
+
+    process
+    {
+        # This isn't how `cut` works but after some experimentation I don't
+        # really like how `cut` handles multiple delimiters in a row, so we're
+        # doin' it my way baybeeee
+        $split = @($InputString.Split($Delimiter, [System.StringSplitOptions]::RemoveEmptyEntries))
+        if ($split.Length -le 1)
+        {
+            Write-Output $split
+        }
+        else
+        {
+            # This saves us on processing the field specs each time for every index.
+            # We calculate the indices determined by the field spec only for indices that we haven't seen yet,
+            # i.e. for the portion of the split input string that is beyond the longest split input string we've
+            # seen so far. Consider if the biggest number of fields we last saw was 3:
+            # - If we see an input with only <= 3 fields, we already have the matching indices cached.
+            # - If we see an input with 6 fields, we'll only check if indices 3, 4, and 5 meet the criteria,
+            #   and then we'll add those to the cache. Then we don't have to check again for any number of fields
+            #   less than or equal to 6.
+
+            if ($split.Length -gt $lastHighestLength)
+            {
+                $remainingIndices = New-Object System.Collections.ArrayList(,($lastHighestLength .. ($split.Length - 1)))
+                foreach ($spec in $fieldSpecs)
+                {
+                    # We gotta do a little song and dance here so we don't modify a collection
+                    # as we iterate through it.
+                    for ($j = 0; $j -lt $remainingIndices.Count; $j++)
+                    {
+                        $i = $remainingIndices[$j]
+                        #Write-Host "testing:" ($i+1) $spec
+                        if (InRangeOf ($i+1) $spec)
+                        {
+                            #Write-Host "match:" ($i+1) $spec
+                            $null = $matchingIndices.Add($i)
+                            $remainingIndices.RemoveAt($j)
+                            $j--
+                        }
+                    }
+                }
+                $lastHighestLength = $split.Length
+            }
+
+            $outputEls = New-Object System.Collections.ArrayList
+            foreach ($i in $matchingIndices)
+            {
+                $null = $outputEls.Add($split[$i])
+            }
+            $output = $outputEls -join $Delimiter
+            Write-Output $output
+        }
+    }
+}
+
+New-Alias -Name Redirect-ToFile -Value Out-ToFile
+
+# Unix-y aliases
+New-Alias -Name count -Value Measure-ObjectCount
+New-Alias -Name touch -Value Update-FileTimestampAttribute
+New-Alias -Name sed -Value Edit-String
+New-Alias -Name grep -Value Find-String
+New-Alias -Name xargs -Value Invoke-ForEachObject
+New-Alias -Name cut -Value Split-String
 
 ##############################
 # Git utilities
