@@ -1024,6 +1024,67 @@ function Remove-UntrackedFiles
     }
 }
 
+# Returns all open PRs for the given orgs & repos.
+function Get-OpenGitHubPullRequest
+{
+    param (
+        [string[]] $Organizations = @('relativityone','relativitydev'),
+        [string] $RepositoryFilter = '^testdk',
+        [switch] $SkipDependabot
+    )
+
+    $statusMap = @{
+        'COMMENTED'         = '\xF0\x9F\x92\xAC' # 💬
+        'REVIEW_REQUIRED'   = '\u231A' # ⌚
+        'CHANGES_REQUESTED' = '\u274C' # ❌
+        'APPROVED'          = '\u2705' # ✅
+        ''                  = '\u2754' # ❔
+    }
+
+    $prFilter = 'true'
+    if ($SkipDependabot)
+    {
+        $prFilter = 'ne .author.login \"dependabot\"'
+    }
+
+    $reviewDecisionBlock = ''
+    foreach ($status in $statusMap.Keys)
+    {
+        $reviewDecisionBlock += "{{if eq .reviewDecision \`"${status}\`"}}{{print \`"$($statusMap[$status])\`"}}{{end}}"
+    }
+
+    $reviewStateBlock = ''
+    foreach ($status in $statusMap.Keys)
+    {
+        $reviewStateBlock += "{{if eq .state \`"${status}\`"}}{{print \`"$($statusMap[$status])\`"}}{{end}}"
+    }
+
+    $outputTemplate =
+"{{range .}}" +
+    "{{if ${prFilter}}}" +
+        "${reviewDecisionBlock} {{print .title}}: {{printf \`"%s\n\t\`" .url}}" +
+            "review-decision: {{if eq .reviewDecision \`"\`"}}{{print \`"\`"}}{{else}}{{print .reviewDecision}}{{end}}{{print \`"\n\t\`"}}" +
+            "author: {{printf \`"%s\n\t\`" .author.login}}" +
+            "created-at: {{printf \`"%s\n\t\`" .createdAt}}" +
+            "reviews:{{print \`"\n\`"}}" +
+            "{{range .latestReviews}}" +
+                "{{print \`"\t\t\`" }}${reviewStateBlock} {{printf \`"%s\n\`" .author.login }}" +
+            "{{else}}" +
+                "{{print \`"\t\tNo reviews.\n\`"}}" +
+            "{{end}}" +
+    "{{end}}" +
+"{{end}}"
+    foreach ($org in $Organizations)
+    {
+        gh repo list "${org}" --limit 1000 --json name,nameWithOwner --jq ".[] | select(.name | test(\`"${RepositoryFilter}\`")) | .nameWithOwner" |
+            ForEach-Object {
+                gh pr list --repo "${_}" --json author,createdAt,id,title,body,url,reviewDecision,latestReviews --template "${outputTemplate}"
+            }
+    }
+}
+
+New-Alias -Name gh-prs -Value Get-OpenGitHubPullRequest
+
 # These two are posh-git specific - they disable & enable the post-git
 # prompt on PowerShell, respectively.
 
