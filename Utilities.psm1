@@ -1416,6 +1416,30 @@ function New-PlantUmlDiagram
 
 New-Alias -Name "Compile-PlantUmlDiagram" -Value "New-PlantUmlDiagram"
 
+
+<#
+    Converts a string encoded with a backslash escape
+    into one encoded with a backtick escape.
+#>
+function ConvertFrom-EscapedString
+{
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline, Position=0)]
+        [string] $String
+    )
+
+    process
+    {
+        $conv = $String -replace '`','``'
+        $conv = $conv   -replace '(?<!\\)\\(?!\\)','`'
+        $conv = $conv   -replace '\\\\','\'
+        $conv
+    }
+}
+
+New-Alias -Name "unescape" -Value "ConvertFrom-EscapedString"
+
 ###################################
 # Vim editing
 ###################################
