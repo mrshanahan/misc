@@ -1303,15 +1303,15 @@ function Get-OpenGitHubPullRequest
     $outputTemplate =
 "{{range .}}" +
     "{{if ${prFilter}}}" +
-        "${reviewDecisionBlock} {{print .title}}: {{printf \`"%s\n\t\`" .url}}" +
-            "review-decision: {{if eq .reviewDecision \`"\`"}}{{print \`"\`"}}{{else}}{{print .reviewDecision}}{{end}}{{print \`"\n\t\`"}}" +
-            "author: {{printf \`"%s\n\t\`" .author.login}}" +
-            "created-at: {{printf \`"%s\n\t\`" .createdAt}}" +
-            "reviews:{{print \`"\n\`"}}" +
+        "${reviewDecisionBlock} {{print .title}}`n" +
+            "`turl: {{print .url}}`n" +
+            "`tauthor: {{print .author.login}}`n" +
+            "`tcreated-at: {{print .createdAt}}`n" +
+            "`treviews:`n" +
             "{{range .latestReviews}}" +
-                "{{print \`"\t\t\`" }}${reviewStateBlock} {{printf \`"%s\n\`" .author.login }}" +
+                "`t`t${reviewStateBlock} {{printf \`"%s\`" .author.login }}`n" +
             "{{else}}" +
-                "{{print \`"\t\tNo reviews.\n\`"}}" +
+                "`t`tNo reviews.`n" +
             "{{end}}" +
     "{{end}}" +
 "{{end}}"
