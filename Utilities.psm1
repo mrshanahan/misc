@@ -1380,7 +1380,7 @@ function Open-InNotepadPP
 
     process
     {
-        & "C:\Program Files (x86)\Notepad++\notepad++.exe" $File
+        & "C:\Program Files\Notepad++\notepad++.exe" $File
     }
 }
 
