@@ -83,7 +83,7 @@ Function Load-ProjectRefs
         [string] $Solution
     )
 
-    $projectRegexText = "Project\(`"{([^}]*)}`"\)[\s]*=[\s]*`"([^`"]*)`",[\s]*`"([^`"]*)`",[\s]*`"{([^}]*)}`"[\n\s]*EndProject"
+    $projectRegexText = "Project\(`"{([^}]*)}`"\)[\s]*=[\s]*`"([^`"]*)`",[\s]*`"([^`"]*)`",[\s]*`"{([^}]*)}`""
     $projectRegex = New-Object System.Text.RegularExpressions.Regex($projectRegexText, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
 
     $solutionParent = (Split-Path -Resolve -Parent $Solution)
@@ -115,7 +115,8 @@ Add-Type -TypeDefinition @"
         VS2012,
         VS2015,
         VS2017,
-        VS2019
+        VS2019,
+        VS2022
     }
 "@
 
@@ -125,6 +126,7 @@ $VersionToExe = @{
     [VisualStudioVersion]::VS2015 = "C:\Program Files (x86)\Microsoft Visual Studio 14.0\Common7\IDE\devenv.exe"
     [VisualStudioVersion]::VS2017 = "C:\Program Files (x86)\Microsoft Visual Studio\2017\Professional\Common7\IDE\devenv.exe"
     [VisualStudioVersion]::VS2019 = "C:\Program Files (x86)\Microsoft Visual Studio\2019\Professional\Common7\IDE\devenv.exe"
+    [VisualStudioVersion]::VS2022 = "C:\Program Files\Microsoft Visual Studio\2022\Professional\Common7\IDE\devenv.exe"
 }
 
 # Returns the Windows-style path to the Git root of the given working dir, else throws
@@ -202,6 +204,10 @@ Function Find-SolutionsWithProject
                         $matchingSolutions += ,$solution
                     }
                 }
+                else
+                {
+                    Write-Warning "Solution file ${solution} no longer exists; try running 'Update-SolutionMap'"
+                }
             }
 
             $matchingSolutionsSet = New-GenericObject System.Collections.Generic.HashSet -Of string
@@ -262,7 +268,7 @@ Function Open-Solution
 
         [switch] $TakeFirst,
 
-        [VisualStudioVersion] $With = [VisualStudioVersion]::VS2019
+        [VisualStudioVersion] $With = [VisualStudioVersion]::VS2022
     )
 
     if ([String]::IsNullOrEmpty($SolutionPattern))
@@ -303,7 +309,7 @@ Function Open-Solution
     }
 }
 
-Function Get-Solutions
+Function Get-Solution
 {
     [CmdletBinding()]
     param (
@@ -317,7 +323,88 @@ Function Get-Solutions
     Write-Output (cat $solutionMap)
 }
 
-New-Alias -Name List-Solutions -Value Get-Solutions
+Function Get-SolutionProject
+{
+    [CmdletBinding()]
+    param (
+        [ArgumentCompleter({
+            param($Command, $Parameter, $WordToComplete, $CommandAst, $FakeBoundParams)
+            Get-Solution | Where-Object { $_ -like "${WordToComplete}*" } | Sort-Object
+        })]
+        [string] $Solution,
 
-Export-ModuleMember -Function 'Get-GitRoot','Get-Solutions','Find-SolutionsWithProject','Open-Solution','Update-SolutionMap' `
-                    -Alias 'List-Solutions'
+        [string] $Name,
+
+        [string] $Root,
+
+        [switch] $AsObject
+    )
+
+    $Root = Check-RootOrDefault $Root
+
+    $rootData = Get-RootData $Root
+    $solutionMapFile = $rootData.Map
+    $solutions = (Get-Content $solutionMapFile)
+    if ($Solution)
+    {
+        $solutions = $solutions | Where-Object { $_ -eq $Solution }
+        if (-not $solutions)
+        {
+            throw "Could not find solution file: ${Solution}"
+        }
+    }
+
+    $projectNamePattern = if ($Name) { $Name } else { '*' }
+
+    foreach ($sln in $solutions)
+    {
+        if (Test-Path $sln)
+        {
+            $projects = Load-ProjectRefs $sln | Where-Object Name -like $projectNamePattern
+            if ($projects)
+            {
+                if (-not $AsObject)
+                {
+                    Write-Host -ForegroundColor Green "${sln}:"
+                    $projects | Format-List | Out-String | Write-Host
+                }
+                else
+                {
+                    $solutionProjects = [PSCustomObject] @{ Solution = $sln; Projects = $projects }
+                    Write-Output $solutionProjects
+                }
+            }
+        }
+        else
+        {
+            Write-Warning "Solution file ${solution} no longer exists; try running 'Update-SolutionMap'"
+        }
+    }
+}
+
+$ALIASES = @{
+    'List-Solution' = 'Get-Solution'
+}
+
+foreach ($kvp in $ALIASES.GetEnumerator())
+{
+    $name = $kvp.Key
+    $definition = $kvp.Value
+    $existing = Get-Alias -Name $name -ErrorAction Ignore
+    if (-not $existing)
+    {
+        New-Alias -Name $name -Value $definition
+    }
+    else
+    {
+        Write-Warning "Alias with name '${name}' already exists (definition: '${definition}')"
+    }
+}
+
+Export-ModuleMember -Function 'Get-GitRoot',
+                              'Get-Solution',
+                              'Find-SolutionsWithProject',
+                              'Open-Solution',
+                              'Update-SolutionMap',
+                              'Get-SolutionProject' `
+                    -Alias @($ALIASES.Keys)
