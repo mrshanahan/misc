@@ -347,7 +347,7 @@ Function Get-SolutionProject
     $solutions = (Get-Content $solutionMapFile)
     if ($Solution)
     {
-        $solutions = $solutions | Where-Object { $_ -eq $Solution }
+        $solutions = $solutions | Where-Object { $_ -like "*${Solution}*" }
         if (-not $solutions)
         {
             throw "Could not find solution file: ${Solution}"

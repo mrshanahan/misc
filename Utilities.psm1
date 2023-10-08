@@ -609,6 +609,39 @@ function dns
     Resolve-DnsName @params
 }
 
+# Convert to/from Base64 strings
+function ConvertTo-Base64
+{
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline, Position=0)]
+        [string] $InputObject
+    )
+
+    process
+    {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($InputObject)
+        $encoded = [Convert]::ToBase64String($bytes)
+        $encoded
+    }
+}
+
+function ConvertFrom-Base64
+{
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, ValueFromPipeline, Position=0)]
+        [string] $InputObject
+    )
+
+    process
+    {
+        $bytes = [Convert]::FromBase64String($InputObject)
+        $decoded = [System.Text.Encoding]::UTF8.GetString($bytes)
+        $decoded
+    }
+}
+
 ##############################
 # Unix standins/replacements
 ##############################
@@ -958,6 +991,7 @@ New-Alias -Name sed -Value Edit-String
 New-Alias -Name grep -Value Find-String
 New-Alias -Name xargs -Value Invoke-ForEachObject
 New-Alias -Name cut -Value Split-String
+New-Alias -Name which -Value Get-Command
 
 ##############################
 # Git utilities
@@ -1265,13 +1299,64 @@ function Remove-UntrackedFiles
     }
 }
 
-# Returns all open PRs for the given orgs & repos.
+<#
+    .SYNOPSIS
+        Returns all open PRs for the given GitHub orgs & repos
+
+    .DESCRIPTION
+        Queries for open PRs in the given GitHub organizations & repositories. The PR status is then written
+        to the output in the following structure:
+
+            <review-decision-symbol> <title>
+                url: <pr-url>
+                author: <author-username>
+                created-at: <created-at-date>
+                reviews:
+                    <review-status> <review-author-username>
+                    ...
+
+        For example:
+
+            ❌ DEVOPS-123456: Adding a FooBar to the BangBaz
+                url: https://github.com/relativityone/bang-baz-framework/pull/123
+                author: jerrydoesstandup
+                created-at: 2022-10-07T21:29:24Z
+                reviews:
+                        💬 its_kramer
+                        ✅ art.vandelay
+                        ❌ elaine
+
+        By default, all dependabot PRs are excluded.
+
+    .PARAMETER Organization
+        GitHub organization(s) to query for repositories.
+
+    .PARAMETER RepositoryFilters
+        Filter(s) to use when querying for repositories. Uses the gh CLI syntax, which is partial regex matching.
+
+    .PARAMETER IncludeDependabot
+        By default this command excludes all PRs with the author "dependabot". If this flag is provided,
+        those PRs are included.
+#>
+
 function Get-OpenGitHubPullRequest
 {
+    [CmdletBinding()]
     param (
-        [string[]] $Organizations = @('relativityone','relativitydev'),
-        [string] $RepositoryFilter = '^testdk',
-        [switch] $SkipDependabot
+        [Parameter()]
+        [string[]] $Organization = @('relativityone','relativitydev'),
+
+        [Parameter()]
+        [string[]] $RepositoryFilter = @('^migration-runner','^testdk','^relativity.testing.framework','development-environments','^hopper$'),
+
+        # [Parameter()]
+        # [switch] $NeedsReview,
+
+        [Parameter()]
+        [switch] $IncludeDependabot
+
+        # [Parameter()]
+        # [switch] $SkipDrafts
     )
 
     $statusMap = @{
@@ -1282,10 +1367,29 @@ function Get-OpenGitHubPullRequest
         ''                  = '\u2754' # ❔
     }
 
-    $prFilter = 'true'
-    if ($SkipDependabot)
+    $draftSymbol = '\xF0\x9F\x93\x8B' # 📝
+
+    # TODO: Figure out how to actually filter for this. Seems to require some state
+    #       beyond what is possible in a Go template.
+    # if ($NeedsReview)
+    # {
+    #     $reviewerUsername = gh auth status 2>&1 |
+    #         Select-String -Pattern 'Logged in to github.com as ([^\s]*)' |
+    #         ForEach-Object { $_.Matches[0].Groups[1].Value }
+    #     if (-not $reviewerUsername)
+    #     {
+    #         Write-Warning "Could not determine username from GitHub CLI; skipping -NeedsReview check"
+    #     }
+    #     else
+    #     {
+    #         Write-Verbose "Filtering for PRs that need to be reviewed by: ${reviewerUsername}"
+    #     }
+    # }
+
+    $prFilter = 'ne .author.login \"dependabot\"'
+    if ($IncludeDependabot)
     {
-        $prFilter = 'ne .author.login \"dependabot\"'
+        $prFilter = 'true'
     }
 
     $reviewDecisionBlock = ''
@@ -1303,24 +1407,28 @@ function Get-OpenGitHubPullRequest
     $outputTemplate =
 "{{range .}}" +
     "{{if ${prFilter}}}" +
-        "${reviewDecisionBlock} {{print .title}}`n" +
-            "`turl: {{print .url}}`n" +
-            "`tauthor: {{print .author.login}}`n" +
-            "`tcreated-at: {{print .createdAt}}`n" +
+        "{{if .isDraft}}[{{print \`"${draftSymbol}\`"}}] {{else}}{{end}}${reviewDecisionBlock} {{.title}}`n" +
+            "`turl: {{.url}}`n" +
+            "`tauthor: {{.author.login}}`n" +
+            "`tcreated-at: {{.createdAt}}`n" +
             "`treviews:`n" +
             "{{range .latestReviews}}" +
-                "`t`t${reviewStateBlock} {{printf \`"%s\`" .author.login }}`n" +
+                "`t`t${reviewStateBlock} {{.author.login}}`n" +
             "{{else}}" +
                 "`t`tNo reviews.`n" +
             "{{end}}" +
     "{{end}}" +
 "{{end}}"
-    foreach ($org in $Organizations)
+
+    foreach ($org in $Organization)
     {
-        gh repo list "${org}" --limit 1000 --json name,nameWithOwner --jq ".[] | select(.name | test(\`"${RepositoryFilter}\`")) | .nameWithOwner" |
-            ForEach-Object {
-                gh pr list --repo "${_}" --json author,createdAt,id,title,body,url,reviewDecision,latestReviews --template "${outputTemplate}"
-            }
+        foreach ($repoFilter in $RepositoryFilter)
+        {
+            gh repo list "${org}" --limit 1000 --json name,nameWithOwner --jq ".[] | select(.name | test(\`"${repoFilter}\`")) | .nameWithOwner" |
+                ForEach-Object {
+                    gh pr list --repo "${_}" --json author,createdAt,id,title,body,url,reviewDecision,latestReviews,isDraft --template "${outputTemplate}"
+                }
+        }
     }
 }
 
@@ -1439,6 +1547,43 @@ function ConvertFrom-EscapedString
 }
 
 New-Alias -Name "unescape" -Value "ConvertFrom-EscapedString"
+
+function Select-Expression
+{
+    [CmdletBinding()]
+    param (
+        [Parameter(ValueFromPipeline)]
+        [System.Management.Automation.PSObject] $InputObject,
+
+        [Parameter(Mandatory, Position=0)]
+        [ScriptBlock] $Expression,
+
+        [Parameter(Position=1)]
+        [string] $Name,
+
+        [Parameter(Position=2)]
+        [string[]] $Property
+    )
+
+    begin
+    {
+        if ($Property)
+        {
+            $properties = $Property + @(@{ Name = $Name; Expression = $Expression })
+        }
+        else
+        {
+            $properties = @(@{ Name = $Name; Expression = $Expression })
+        }
+    }
+
+    process
+    {
+        Select-Object -InputObject $InputObject -Property $properties
+    }
+}
+
+New-Alias -Name 'selex' -Value 'Select-Expression'
 
 ###################################
 # Vim editing
